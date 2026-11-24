@@ -15,7 +15,7 @@ local function notify(t)
     warn("[Lest] " .. tostring(t))
     pcall(function()
         game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "Lest", Text = tostring(t):sub(1, 200), Duration = 6
+            Title = "Lest", Text = tostring(t):sub(1, 200), Duration = 5
         })
     end)
 end
@@ -31,18 +31,46 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 local Players = game:GetService("Players")
 do
     local t0 = os.clock()
-    while not Players.LocalPlayer and os.clock() - t0 < 30 do task.wait(0.2) end
-    local lp = Players.LocalPlayer
-    if lp then lp:WaitForChild("PlayerGui", 20) end
-    task.wait(1)
+    while not Players.LocalPlayer and os.clock() - t0 < 30 do task.wait(0.1) end
 end
 
 ---------------------------------------------------------------------
--- TOMBOL PANEL (selalu ada, bisa digeser)
+-- TOMBOL PANEL: berwarna, bebas digeser, posisi tersimpan
 ---------------------------------------------------------------------
+G.__LestUI = { open = false, wantOpen = false, touched = false }
+
 local function makeButton()
     if G.__LestBtn then pcall(function() G.__LestBtn:Destroy() end) end
+    if G.__LestInputConn then pcall(function() G.__LestInputConn:Disconnect() end) end
+
     local UIS = game:GetService("UserInputService")
+    local HttpService = game:GetService("HttpService")
+    local SIZE = 48
+    local POS_FILE = "LestOpus/button.json"
+
+    local function viewport()
+        local cam = workspace.CurrentCamera
+        local v = cam and cam.ViewportSize
+        if v and v.X > 0 then return v.X, v.Y end
+        return 800, 400
+    end
+    local function loadPos()
+        if type(isfile) ~= "function" or type(readfile) ~= "function" then return nil end
+        local ok, raw = pcall(function() if isfile(POS_FILE) then return readfile(POS_FILE) end end)
+        if not ok or not raw then return nil end
+        local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
+        if ok2 and type(data) == "table" and type(data.x) == "number" and type(data.y) == "number" then return data end
+    end
+    local function savePos(xs, ys)
+        if type(writefile) ~= "function" then return end
+        pcall(function()
+            if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder("LestOpus") then
+                makefolder("LestOpus")
+            end
+            writefile(POS_FILE, HttpService:JSONEncode({ x = xs, y = ys }))
+        end)
+    end
+
     local parent
     pcall(function() if gethui then parent = gethui() end end)
     if not parent then pcall(function() parent = game:GetService("CoreGui") end) end
@@ -54,73 +82,102 @@ local function makeButton()
     pcall(function() if syn and syn.protect_gui then syn.protect_gui(gui) end end)
     local okParent = parent and pcall(function() gui.Parent = parent end)
     if not okParent or not gui.Parent then
-        gui.Parent = Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        local pg = Players.LocalPlayer:FindFirstChildOfClass("PlayerGui") or Players.LocalPlayer:WaitForChild("PlayerGui", 10)
+        gui.Parent = pg
     end
     G.__LestBtn = gui
 
+    local vw, vh = viewport()
+    local saved = loadPos()
+    local px = saved and math.clamp(saved.x * vw, 0, vw - SIZE) or 14
+    local py = saved and math.clamp(saved.y * vh, 0, vh - SIZE) or (vh / 2 - SIZE / 2)
+
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.fromOffset(46, 46)
-    btn.Position = UDim2.new(0, 14, 0.5, -23)
-    btn.BackgroundColor3 = Color3.fromHex("201017")
+    btn.Size = UDim2.fromOffset(SIZE, SIZE)
+    btn.Position = UDim2.fromOffset(px, py)
+    btn.BackgroundColor3 = Color3.new(1, 1, 1)
     btn.AutoButtonColor = false
     btn.Text = "L"
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 22
-    btn.TextColor3 = Color3.fromHex("FFF0F2")
+    btn.TextSize = 24
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.TextStrokeColor3 = Color3.fromHex("5B1A6B")
+    btn.TextStrokeTransparency = 0.5
     btn.Parent = gui
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 14)
-    corner.Parent = btn
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromHex("FA526A")
-    stroke.Thickness = 1.5
-    stroke.Parent = btn
-    local grad = Instance.new("UIGradient")
-    grad.Color = ColorSequence.new(Color3.fromHex("2D1720"), Color3.fromHex("140B10"))
-    grad.Rotation = 90
-    grad.Parent = btn
 
-    local mine = { open = true }
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 16)
+    corner.Parent = btn
+    local grad = Instance.new("UIGradient")
+    grad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromHex("FF4D8D")),
+        ColorSequenceKeypoint.new(0.5, Color3.fromHex("FF7A45")),
+        ColorSequenceKeypoint.new(1, Color3.fromHex("B14DFF")),
+    })
+    grad.Rotation = 45
+    grad.Parent = btn
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.new(1, 1, 1)
+    stroke.Transparency = 0.35
+    stroke.Thickness = 2
+    stroke.Parent = btn
+
     local function toggle()
+        local ui = G.__LestUI
+        ui.touched = true
         local s = G.__LestOpus
         local win = s and s.Window
-        if not win then return notify("Menu belum siap, tunggu sebentar") end
+        if not win then
+            ui.wantOpen = true
+            return notify("Menu sedang dimuat, akan terbuka sendiri saat siap")
+        end
         local closed = win.Closed
-        if type(closed) ~= "boolean" then closed = not mine.open end
+        if type(closed) ~= "boolean" then closed = not ui.open end
         local ok = pcall(function()
             if closed then win:Open() else win:Close() end
         end)
-        if ok then mine.open = closed else pcall(function() win:Toggle() end) end
+        if ok then ui.open = closed end
     end
-    G.__LestToggle = toggle
 
-    local dragging, moved, dragStart, startPos = false, false, nil, nil
+    local dragInput, dragStart, startX, startY, moved
     btn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging, moved = true, false
-            dragStart, startPos = input.Position, btn.Position
+        if dragInput then return end
+        local t = input.UserInputType
+        if t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1 then
+            dragInput, moved = input, false
+            dragStart = input.Position
+            startX, startY = btn.AbsolutePosition.X, btn.AbsolutePosition.Y
             input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                    if not moved then toggle() end
+                if input.UserInputState == Enum.UserInputState.End and dragInput == input then
+                    dragInput = nil
+                    if moved then
+                        local w, h = viewport()
+                        savePos(btn.AbsolutePosition.X / w, btn.AbsolutePosition.Y / h)
+                    else
+                        toggle()
+                    end
                 end
             end)
         end
     end)
-    UIS.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+    G.__LestInputConn = UIS.InputChanged:Connect(function(input)
+        if not dragInput then return end
+        local t = input.UserInputType
+        if input == dragInput or (t == Enum.UserInputType.MouseMovement and dragInput.UserInputType == Enum.UserInputType.MouseButton1) then
             local d = input.Position - dragStart
             if d.Magnitude > 6 then moved = true end
             if moved then
-                btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+                local w, h = viewport()
+                btn.Position = UDim2.fromOffset(
+                    math.clamp(startX + d.X, 0, w - SIZE),
+                    math.clamp(startY + d.Y, 0, h - SIZE))
             end
         end
     end)
-    return mine
 end
 
-local okBtn, mine = pcall(makeButton)
-if not okBtn then notify("Tombol panel gagal dibuat: " .. tostring(mine)) mine = { open = true } end
+local okBtn, errBtn = pcall(makeButton)
+if not okBtn then notify("Tombol panel gagal dibuat: " .. tostring(errBtn)) end
 
 ---------------------------------------------------------------------
 -- MUAT SCRIPT
@@ -169,6 +226,7 @@ local function attempt()
         if r then src = r elseif required then failed = true end
     end
 
+    -- Pemilih ItemDB terbesar
     local a1 = "local function readUpvalues(fn)"
     patch(a1, [==[
 local function pickLargestDatabase(match)
@@ -189,6 +247,7 @@ local function pickLargestDatabase(match)
     end
     ]==] .. a1, true)
 
+    -- Pemindaian lebih cepat
     patch("local function inspectValue(target, value, object)",
         "local function inspectValueSlow(target, value, object)", true)
     local a3 = "local filteredMatches, filteredTried = {}, false"
@@ -208,10 +267,8 @@ local function inspectValue(target, value, object)
     end
     ]==] .. a3, true)
 
-    patch("local bound = databaseFromActions()", [==[
-local best0 = pickLargestDatabase(filtered)
-                if best0 then return best0.Value end
-                local bound = databaseFromActions()]==], false)
+    -- Jalur cepat: langsung pilih kandidat terbesar (tanpa pembandingan berat)
+    patch("local resolved = resolveDatabase(filtered)", "local resolved = pickLargestDatabase(filtered)", false)
     patch("local value = databaseFromActions()", [==[
 local value
             if found and found.Ambiguous then
@@ -219,7 +276,9 @@ local value
                 if best then return best.Value, best.Object end
             end
             value = databaseFromActions()]==], false)
+    patch("if visited % 1000 == 0 then task.wait() end", "if visited % 4000 == 0 then task.wait() end", false)
 
+    -- Cache hasil modul
     patch("local function structuralModule(name, retry)",
         "local function structuralModuleRaw(name, retry)", true)
     local a5 = "local function loadModule(parent, name, required)"
@@ -237,7 +296,31 @@ local function structuralModule(name, retry)
     end
     ]==] .. a5, true)
 
-    -- Tampilan ringan + simpan jendela supaya bisa dibuka/ditutup dari tombol L
+    -- Simpan WindUI di HP supaya world berikutnya tidak mengunduh ulang
+    patch([==[print("[GentaH4x] Memuat build " .. Session.Build)]==], [==[
+Session.rawDownload = Session.download
+function Session.download(url)
+    local isUI = type(url) == "string" and url:find("WindUI", 1, true) ~= nil
+    local file = "LestOpus/windui.cache"
+    if isUI and type(isfile) == "function" and type(readfile) == "function" then
+        local okc, has = pcall(isfile, file)
+        if okc and has then
+            local okr, data = pcall(readfile, file)
+            if okr and type(data) == "string" and #data > 1000 and loadstring(data, "WindUI") then return data end
+        end
+    end
+    local data = Session.rawDownload(url)
+    if isUI and type(writefile) == "function" and type(data) == "string" and #data > 1000 then
+        pcall(function()
+            if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder("LestOpus") then makefolder("LestOpus") end
+            writefile(file, data)
+        end)
+    end
+    return data
+end
+print("[GentaH4x] Memuat build " .. Session.Build)]==], false)
+
+    -- Tampilan ringan; menu ditutup tepat saat dibuat
     patch("WindUI = downloadWindUI()()", [==[
 WindUI = downloadWindUI()()
     pcall(function()
@@ -251,6 +334,19 @@ WindUI = downloadWindUI()()
             local win = create(self, cfg, ...)
             Session.Window = win
             pcall(function() win:EditOpenButton({ Enabled = false }) end)
+            local ui = G.__LestUI
+            if ui and ui.wantOpen then
+                ui.open = true
+            else
+                task.defer(function() pcall(function() win:Close() end) end)
+                task.spawn(function()
+                    for _ = 1, 14 do
+                        if ui and ui.touched then return end
+                        pcall(function() if win.Closed ~= true then win:Close() end end)
+                        task.wait(0.25)
+                    end
+                end)
+            end
             return win
         end
     end)]==], false)
@@ -271,22 +367,11 @@ WindUI = downloadWindUI()()
     return true
 end
 
--- Setelah selesai dimuat, tutup menu (tidak terbuka sendiri)
-task.spawn(function()
-    local t0 = os.clock()
-    while os.clock() - t0 < 150 do
-        local s = G.__LestOpus
-        if s and s.Window and (s.Ready or os.clock() - t0 > 60) then
-            task.wait(0.5)
-            if pcall(function() s.Window:Close() end) then mine.open = false end
-            return
-        end
-        task.wait(0.5)
-    end
-end)
-
 for i = 1, 3 do
     if attempt() then break end
+    task.wait(5)
+end
+G.__LestLoading = falseend
     task.wait(5)
 end
 G.__LestLoading = false
