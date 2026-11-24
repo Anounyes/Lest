@@ -371,7 +371,4 @@ for i = 1, 3 do
     if attempt() then break end
     task.wait(5)
 end
-G.__LestLoading = falseend
-    task.wait(5)
-end
 G.__LestLoading = false
