@@ -1,0 +1,8 @@
+local base = "https://raw.githubusercontent.com/Anounyes/lest/refs/heads/main/"
+local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+if q then
+    pcall(q, 'loadstring(game:HttpGet("' .. base .. 'lest-boot.lua.txt?t=" .. os.time()))()')
+else
+    warn("[Lest] Executor tidak mendukung queue_on_teleport")
+end
+loadstring(game:HttpGet(base .. "lest-loader.lua.txt?t=" .. os.time()))()
