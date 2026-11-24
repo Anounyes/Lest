@@ -5,6 +5,14 @@ local MAIN_FILE = "gentah4x.lua.txt"
 local BOOT_FILE = "lest-boot.lua.txt"
 local LITE = true -- true = Mode Lite (FPS naik)
 
+-- Tampilan tombol L (gaya loader Sein). Warna dalam kode hex tanpa #
+local LOGO_TEXT = "L"        -- isi "Lest" kalau mau tulisan Lest
+local LOGO_COLOR = "FF5FA8"  -- warna huruf (pink)
+local TILE_COLOR = "2E2925"  -- warna dasar tile (cokelat gelap hangat)
+local RIM_1 = "568040"       -- garis tepi berputar: hijau gelap
+local RIM_2 = "74C658"       -- hijau
+local RIM_3 = "8AD66E"       -- hijau terang
+
 local G = (getgenv and getgenv()) or _G
 local BASE = "https://raw.githubusercontent.com/" .. OWNER .. "/" .. REPO .. "/refs/heads/" .. BRANCH .. "/"
 
@@ -35,7 +43,7 @@ do
 end
 
 ---------------------------------------------------------------------
--- TOMBOL PANEL: L pink, latar gradasi biru, bebas digeser
+-- TOMBOL PANEL (gaya Sein): tile gelap, garis tepi berputar, bebas digeser
 ---------------------------------------------------------------------
 G.__LestUI = { open = false, wantOpen = false, touched = false }
 
@@ -45,6 +53,7 @@ local function makeButton()
 
     local UIS = game:GetService("UserInputService")
     local HttpService = game:GetService("HttpService")
+    local TweenService = game:GetService("TweenService")
     local SIZE = 52
     local POS_FILE = "LestOpus/button.json"
 
@@ -96,35 +105,87 @@ local function makeButton()
     local px = saved and math.clamp(saved.x * vw, 0, vw - SIZE) or 14
     local py = saved and math.clamp(saved.y * vh, 0, vh - SIZE) or (vh / 2 - SIZE / 2)
 
-    local pink = Color3.fromHex("FF5FA8")
-
+    -- Tile: warna dasar, lalu gradasi terang di atas (seperti panel Sein)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(SIZE, SIZE)
     btn.Position = UDim2.fromOffset(px, py)
-    btn.BackgroundColor3 = Color3.new(1, 1, 1) -- warna dasar ditimpa gradasi
+    btn.BackgroundColor3 = Color3.fromHex(TILE_COLOR)
     btn.AutoButtonColor = false
-    btn.Text = "L"
-    btn.Font = Enum.Font.GothamBlack
-    btn.TextSize = 30
-    btn.TextColor3 = pink
-    btn.TextStrokeColor3 = Color3.fromHex("1B0A2E")
-    btn.TextStrokeTransparency = 0.3
+    btn.Text = ""
     btn.Parent = gui
 
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 14)
     corner.Parent = btn
-    local grad = Instance.new("UIGradient")
-    grad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromHex("5CC8FF")),
-        ColorSequenceKeypoint.new(1, Color3.fromHex("1A3FD1")),
-    })
-    grad.Rotation = 90
-    grad.Parent = btn
+
+    local shade = Instance.new("UIGradient")
+    shade.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(0.62, 0.62, 0.62))
+    shade.Rotation = 90
+    shade.Parent = btn
+
+    -- Garis tepi berputar: gradasi di dalam stroke, diputar oleh tween bawaan Roblox (ringan untuk FPS)
     local stroke = Instance.new("UIStroke")
-    stroke.Color = pink
+    stroke.Color = Color3.new(1, 1, 1)
     stroke.Thickness = 2
     stroke.Parent = btn
+    local rim = Instance.new("UIGradient")
+    rim.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromHex(RIM_1)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromHex(RIM_2)),
+        ColorSequenceKeypoint.new(1, Color3.fromHex(RIM_3)),
+    })
+    rim.Rotation = 0
+    rim.Parent = stroke
+    pcall(function()
+        if G.__LestRimTween then G.__LestRimTween:Cancel() end
+        local tw = TweenService:Create(rim,
+            TweenInfo.new(2.5, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1, false, 0),
+            { Rotation = 360 })
+        tw:Play()
+        G.__LestRimTween = tw
+    end)
+
+    -- Kilau tipis di separuh atas
+    local gloss = Instance.new("Frame")
+    gloss.Name = "Gloss"
+    gloss.Size = UDim2.new(1, -8, 0.5, -4)
+    gloss.Position = UDim2.fromOffset(4, 4)
+    gloss.BackgroundColor3 = Color3.new(1, 1, 1)
+    gloss.BackgroundTransparency = 0.8
+    gloss.BorderSizePixel = 0
+    gloss.ZIndex = 1
+    gloss.Parent = btn
+    local glossCorner = Instance.new("UICorner")
+    glossCorner.CornerRadius = UDim.new(0, 10)
+    glossCorner.Parent = gloss
+    local glossFade = Instance.new("UIGradient")
+    glossFade.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.1),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    glossFade.Rotation = 90
+    glossFade.Parent = gloss
+
+    -- Huruf: putih dengan gradasi pink dan garis tepi gelap
+    local letter = Instance.new("TextLabel")
+    letter.Name = "Letter"
+    letter.Size = UDim2.fromScale(1, 1)
+    letter.BackgroundTransparency = 1
+    letter.Text = LOGO_TEXT
+    letter.Font = Enum.Font.GothamBlack
+    letter.TextSize = #LOGO_TEXT > 1 and 18 or 30
+    letter.TextColor3 = Color3.new(1, 1, 1)
+    letter.TextStrokeColor3 = Color3.fromRGB(24, 8, 18)
+    letter.TextStrokeTransparency = 0.4
+    letter.ZIndex = 2
+    letter.Parent = btn
+    local letterGrad = Instance.new("UIGradient")
+    letterGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromHex("FFB8DC")),
+        ColorSequenceKeypoint.new(1, Color3.fromHex(LOGO_COLOR)),
+    })
+    letterGrad.Rotation = 90
+    letterGrad.Parent = letter
 
     local function toggle()
         local ui = G.__LestUI
@@ -433,37 +494,4 @@ do
                 ui.open = true
             else
                 task.defer(function() pcall(function() win:Close() end) end)
-                task.spawn(function()
-                    for _ = 1, 14 do
-                        if ui and ui.touched then return end
-                        pcall(function() if win.Closed ~= true then win:Close() end end)
-                        task.wait(0.25)
-                    end
-                end)
-            end
-            return win
-        end
-    end)
-end]==], false)
-
-    if LITE then
-        local a7 = "if (Config.Data.Version == nil or Config.Data.Version == 1) and State.AfterBreakMs == 300 then"
-        patch(a7, "State.LiteMode = true\nState.Visual = false\nState.MutePunch = true\n" .. a7, false)
-    end
-
-    if failed then src = original end
-    local fn, err = loadstring(rename(src), "lest-main")
-    if not fn then
-        fn, err = loadstring(rename(original), "lest-main")
-        if not fn then notify("Kompilasi gagal: " .. tostring(err)) return false end
-    end
-    local ran, res = xpcall(fn, debug.traceback)
-    if not ran then notify("Error: " .. tostring(res)) return false end
-    return true
-end
-
-for i = 1, 3 do
-    if attempt() then break end
-    task.wait(5)
-end
-G.__LestLoading = false
+      
