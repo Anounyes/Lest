@@ -1,0 +1,164 @@
+local OWNER = "Anounyes"
+local REPO = "lest"
+local BRANCH = "main"
+local MAIN_FILE = "gentah4x.lua.txt"
+local LITE = true -- true = Mode Lite (FPS naik)
+
+local G = (getgenv and getgenv()) or _G
+if G.__LestLoading and os.clock() - (G.__LestLoadingAt or 0) < 120 then return end
+G.__LestLoading, G.__LestLoadingAt = true, os.clock()
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+do
+    local Players = game:GetService("Players")
+    local t0 = os.clock()
+    while not Players.LocalPlayer and os.clock() - t0 < 30 do task.wait(0.2) end
+    local lp = Players.LocalPlayer
+    if lp then lp:WaitForChild("PlayerGui", 20) end
+    task.wait(2)
+end
+
+local URL = "https://raw.githubusercontent.com/" .. OWNER .. "/" .. REPO .. "/refs/heads/" .. BRANCH .. "/" .. MAIN_FILE
+
+local function notify(t)
+    warn("[Lest] " .. tostring(t))
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Lest", Text = tostring(t):sub(1, 200), Duration = 8
+        })
+    end)
+end
+
+for _, key in ipairs({ "__GentaH4xOpus", "__GTFarm" }) do
+    if G[key] and G[key].Cleanup then pcall(G[key].Cleanup) end
+    G[key] = nil
+end
+
+pcall(function()
+    local uid = game:GetService("Players").LocalPlayer.UserId
+    local old = "GentaH4xOpus/config_" .. uid .. ".json"
+    local new = "LestOpus/config_" .. uid .. ".json"
+    if isfile and isfile(old) and not isfile(new) then
+        if isfolder and makefolder and not isfolder("LestOpus") then makefolder("LestOpus") end
+        writefile(new, readfile(old))
+    end
+end)
+
+local function matchCase(m)
+    if m:upper() == m then return "LEST" end
+    if m:lower() == m then return "lest" end
+    return "Lest"
+end
+local function rename(s)
+    s = s:gsub("gentasaja", "\1KEEP\1")
+    s = s:gsub("[Gg][Ee][Nn][Tt][Aa]%s?[Hh]4[Xx]", matchCase)
+    s = s:gsub("[Gg][Ee][Nn][Tt][Aa]", matchCase)
+    s = s:gsub("\1KEEP\1", "gentasaja")
+    return s
+end
+
+local function replaceOnce(s, old, new)
+    local i, j = s:find(old, 1, true)
+    if not i then return nil end
+    return s:sub(1, i - 1) .. new .. s:sub(j + 1)
+end
+
+local function attempt()
+    local ok, src = pcall(function() return game:HttpGet(URL .. "?t=" .. tostring(os.time())) end)
+    if not ok or type(src) ~= "string" then notify("Unduh gagal: " .. tostring(src)) return false end
+    local original = src
+    local failed = false
+    local function patch(old, new, required)
+        local r = replaceOnce(src, old, new)
+        if r then src = r elseif required then failed = true end
+    end
+
+    local a1 = "local function readUpvalues(fn)"
+    patch(a1, [==[
+local function pickLargestDatabase(match)
+        local best, bestCount, report = nil, -1, {}
+        for index, candidate in ipairs(match.Candidates) do
+            local count = 0
+            for id in pairs(candidate.Value) do
+                if type(id) == "number" and id >= 0 and id % 1 == 0 then count += 1 end
+            end
+            report[#report + 1] = ("#%d=%d"):format(index, count)
+            if count > bestCount then best, bestCount = candidate, count end
+        end
+        if best then
+            Session.ModuleScan.DatabaseResolution = "entri terbanyak (" .. table.concat(report, ", ") .. ")"
+            warn("[Lest] ItemDB ambigu, memakai kandidat terbesar: " .. table.concat(report, ", "))
+        end
+        return best
+    end
+    ]==] .. a1, true)
+
+    patch("local function inspectValue(target, value, object)",
+        "local function inspectValueSlow(target, value, object)", true)
+    local a3 = "local filteredMatches, filteredTried = {}, false"
+    patch(a3, [==[
+local function inspectValue(target, value, object)
+        if type(value) ~= "table" then return end
+        local sample
+        for i = 0, 6 do
+            local s = rawget(value, i)
+            if s ~= nil then sample = s break end
+        end
+        local maybeItems = type(sample) == "table" and type(rawget(sample, "name")) == "string"
+        local maybeApi = rawget(value, "call") or rawget(value, "new") or rawget(value, "mount")
+            or rawget(value, "isDeveloper") or rawget(value, "play")
+        if not maybeItems and not maybeApi then return end
+        return inspectValueSlow(target, value, object)
+    end
+    ]==] .. a3, true)
+
+    patch("local bound = databaseFromActions()", [==[
+local best0 = pickLargestDatabase(filtered)
+                if best0 then return best0.Value end
+                local bound = databaseFromActions()]==], false)
+    patch("local value = databaseFromActions()", [==[
+local value
+            if found and found.Ambiguous then
+                local best = pickLargestDatabase(found)
+                if best then return best.Value, best.Object end
+            end
+            value = databaseFromActions()]==], false)
+
+    patch("local function structuralModule(name, retry)",
+        "local function structuralModuleRaw(name, retry)", true)
+    local a5 = "local function loadModule(parent, name, required)"
+    patch(a5, [==[
+local function structuralModule(name, retry)
+        local key = "__LestCache_" .. name
+        local cached = G[key]
+        if cached then
+            local okc, yes = pcall(matches, name, cached)
+            if okc and yes then return cached end
+        end
+        local value, object, reason = structuralModuleRaw(name, retry)
+        if value then G[key] = value end
+        return value, object, reason
+    end
+    ]==] .. a5, true)
+
+    if LITE then
+        local a7 = "if (Config.Data.Version == nil or Config.Data.Version == 1) and State.AfterBreakMs == 300 then"
+        patch(a7, "State.LiteMode = true\nState.Visual = false\nState.MutePunch = true\n" .. a7, false)
+    end
+
+    if failed then src = original end
+    local fn, err = loadstring(rename(src), "lest-main")
+    if not fn then
+        fn, err = loadstring(rename(original), "lest-main")
+        if not fn then notify("Kompilasi gagal: " .. tostring(err)) return false end
+    end
+    local ran, res = xpcall(fn, debug.traceback)
+    if not ran then notify("Error: " .. tostring(res)) return false end
+    return true
+end
+
+for i = 1, 3 do
+    if attempt() then break end
+    task.wait(5)
+end
+G.__LestLoading = false
