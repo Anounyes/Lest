@@ -5,11 +5,6 @@ local MAIN_FILE = "gentah4x.lua.txt"
 local BOOT_FILE = "lest-boot.lua.txt"
 local LITE = true -- true = Mode Lite (FPS naik)
 
--- Warna tombol L (kode hex tanpa #)
-local BTN_TEXT = "FF5FA8" -- huruf L + garis tepi (pink)
-local BTN_BG_1 = "14101F" -- latar gradasi atas
-local BTN_BG_2 = "2A1340" -- latar gradasi bawah
-
 local G = (getgenv and getgenv()) or _G
 local BASE = "https://raw.githubusercontent.com/" .. OWNER .. "/" .. REPO .. "/refs/heads/" .. BRANCH .. "/"
 
@@ -17,10 +12,10 @@ if G.__LestLoading and os.clock() - (G.__LestLoadingAt or 0) < 120 then return e
 G.__LestLoading, G.__LestLoadingAt = true, os.clock()
 
 local function notify(t)
-    warn("[LestHub] " .. tostring(t))
+    warn("[Lest] " .. tostring(t))
     pcall(function()
         game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "LestHub", Text = tostring(t):sub(1, 200), Duration = 5
+            Title = "Lest", Text = tostring(t):sub(1, 200), Duration = 5
         })
     end)
 end
@@ -40,7 +35,7 @@ do
 end
 
 ---------------------------------------------------------------------
--- TOMBOL PANEL: huruf L pink, bebas digeser, posisi tersimpan
+-- TOMBOL PANEL: L pink, latar gradasi biru, bebas digeser
 ---------------------------------------------------------------------
 G.__LestUI = { open = false, wantOpen = false, touched = false }
 
@@ -50,7 +45,7 @@ local function makeButton()
 
     local UIS = game:GetService("UserInputService")
     local HttpService = game:GetService("HttpService")
-    local SIZE = 48
+    local SIZE = 52
     local POS_FILE = "LestOpus/button.json"
 
     local function viewport()
@@ -101,41 +96,35 @@ local function makeButton()
     local px = saved and math.clamp(saved.x * vw, 0, vw - SIZE) or 14
     local py = saved and math.clamp(saved.y * vh, 0, vh - SIZE) or (vh / 2 - SIZE / 2)
 
-    local pink = Color3.fromHex(BTN_TEXT)
+    local pink = Color3.fromHex("FF5FA8")
 
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(SIZE, SIZE)
     btn.Position = UDim2.fromOffset(px, py)
-    btn.BackgroundColor3 = Color3.new(1, 1, 1)
+    btn.BackgroundColor3 = Color3.new(1, 1, 1) -- warna dasar ditimpa gradasi
     btn.AutoButtonColor = false
-    btn.Text = ""
+    btn.Text = "L"
+    btn.Font = Enum.Font.GothamBlack
+    btn.TextSize = 30
+    btn.TextColor3 = pink
+    btn.TextStrokeColor3 = Color3.fromHex("1B0A2E")
+    btn.TextStrokeTransparency = 0.3
     btn.Parent = gui
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 16)
+    corner.CornerRadius = UDim.new(0, 14)
     corner.Parent = btn
     local grad = Instance.new("UIGradient")
-    grad.Color = ColorSequence.new(Color3.fromHex(BTN_BG_1), Color3.fromHex(BTN_BG_2))
-    grad.Rotation = 45
+    grad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromHex("5CC8FF")),
+        ColorSequenceKeypoint.new(1, Color3.fromHex("1A3FD1")),
+    })
+    grad.Rotation = 90
     grad.Parent = btn
     local stroke = Instance.new("UIStroke")
     stroke.Color = pink
-    stroke.Transparency = 0.15
     stroke.Thickness = 2
     stroke.Parent = btn
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.fromScale(1, 1)
-    label.BackgroundTransparency = 1
-    label.Active = false
-    label.Text = "L"
-    label.Font = Enum.Font.GothamBlack
-    label.TextSize = 28
-    label.TextColor3 = pink
-    label.TextStrokeColor3 = Color3.new(0, 0, 0)
-    label.TextStrokeTransparency = 0.55
-    label.ZIndex = 2
-    label.Parent = btn
 
     local function toggle()
         local ui = G.__LestUI
@@ -212,11 +201,11 @@ pcall(function()
     end
 end)
 
--- Ganti nama tampilan jadi LestHub. Nama internal (sesi & folder) tetap LestOpus.
+-- Nama karakter & watermark tetap "Lest". Judul menu diganti di CreateWindow.
 local function matchCase(m)
-    if m:upper() == m then return "LESTHUB" end
-    if m:lower() == m then return "lesthub" end
-    return "LestHub"
+    if m:upper() == m then return "LEST" end
+    if m:lower() == m then return "lest" end
+    return "Lest"
 end
 local function rename(s)
     s = s:gsub("gentasaja", "\1KEEP\1")
@@ -243,7 +232,7 @@ local function attempt()
         if r then src = r elseif required then failed = true end
     end
 
-    -- Salinan memori game dipakai ulang 8 detik (tidak menyalin heap berkali-kali)
+    -- Salinan memori game dipakai ulang 8 detik
     patch("local getgc = getgc or get_gc_objects", [==[
 local getgc = (function()
     local raw = getgc or get_gc_objects
@@ -272,7 +261,6 @@ local function pickLargestDatabase(match)
         end
         if best then
             Session.ModuleScan.DatabaseResolution = "entri terbanyak (" .. table.concat(report, ", ") .. ")"
-            warn("[LestHub] ItemDB ambigu, memakai kandidat terbesar: " .. table.concat(report, ", "))
         end
         return best
     end
@@ -298,10 +286,8 @@ local function inspectValue(target, value, object)
     end
     ]==] .. a3, true)
 
-    -- Jalur filter: langsung pilih kandidat terbesar
     patch("local resolved = resolveDatabase(filtered)", "local resolved = pickLargestDatabase(filtered)", false)
 
-    -- Jalur runtime: lewati pembandingan mendalam
     patch([==[if runtimeComplete and found and name == "ItemDB" then]==], [==[
 if found and found.Ambiguous and name == "ItemDB" then
             local bestFast = pickLargestDatabase(found)
@@ -309,7 +295,7 @@ if found and found.Ambiguous and name == "ItemDB" then
         end
         if false and runtimeComplete and found and name == "ItemDB" then]==], false)
 
-    -- Pemindaian dipecah per waktu (3 ms per frame) supaya FPS tidak turun
+    -- Pemindaian dipecah per waktu (3 ms per frame)
     patch("local visited = 0", "local visited, sliceAt = 0, os.clock() + 0.003", false)
     patch("if visited % 1000 == 0 then task.wait() end",
         "if visited % 250 == 0 and os.clock() >= sliceAt then task.wait() sliceAt = os.clock() + 0.003 end", false)
@@ -356,18 +342,27 @@ function Session.download(url)
 end
 print("[GentaH4x] Memuat build " .. Session.Build)]==], false)
 
-    -- Sembunyikan notifikasi status "v2.0"
-    patch("local function notify(title, content, dur)", [==[local function notify(title, content, dur)
-    if type(title) == "string" and title:find("v%d+%.%d") then G.__LestStatus = tostring(content) return end]==], false)
-
-    -- Tampilan ringan; menu ditutup saat dibuat; notifikasi status disaring
+    -- Judul menu LestHub, penyaringan status, menu ditutup saat dibuat
     patch("WindUI = downloadWindUI()()", [==[
 WindUI = downloadWindUI()()
+do
+    -- Kata penanda baris status. Notifikasi / label yang memuatnya disembunyikan.
+    local STATUS_KEYS = { "Pukul:", "Pohon:", "Animasi:", "Dropdown:", "setTile:", "Inventori:", "Pemain:", "Posisi:", "World: OK" }
+    local function hasStatus(t)
+        if type(t) ~= "string" then return false end
+        if t:find("v%d+%.%d") and t:find("Lest", 1, true) then return true end
+        for _, k in ipairs(STATUS_KEYS) do
+            if t:find(k, 1, true) then return true end
+        end
+        return false
+    end
+
+    -- Lapisan 1: panggilan Notify WindUI
     pcall(function()
         local nf = WindUI.Notify
         if type(nf) == "function" then
             WindUI.Notify = function(self, cfg, ...)
-                if type(cfg) == "table" and type(cfg.Title) == "string" and cfg.Title:find("v%d+%.%d") then
+                if type(cfg) == "table" and (hasStatus(cfg.Title) or hasStatus(cfg.Content)) then
                     G.__LestStatus = tostring(cfg.Content)
                     return
                 end
@@ -375,10 +370,57 @@ WindUI = downloadWindUI()()
             end
         end
     end)
+
+    -- Lapisan 2: sembunyikan label status di mana pun muncul (termasuk notifikasi)
+    local function hideStatus(obj)
+        local ok, t = pcall(function() return obj.Text end)
+        if not ok or not hasStatus(t) then return end
+        pcall(function() obj.Visible = false end)
+        local node = obj.Parent
+        for _ = 1, 6 do
+            if not node or node:IsA("ScreenGui") then break end
+            local n = string.lower(node.Name)
+            if n:find("notif") or n:find("toast") or n:find("popup") then
+                pcall(function() node.Visible = false end)
+                break
+            end
+            node = node.Parent
+        end
+    end
+    local function watch(root)
+        if not root then return end
+        pcall(function()
+            for _, d in ipairs(root:GetDescendants()) do
+                if d:IsA("TextLabel") or d:IsA("TextButton") then hideStatus(d) end
+            end
+            local conn = root.DescendantAdded:Connect(function(d)
+                if d:IsA("TextLabel") or d:IsA("TextButton") then
+                    hideStatus(d)
+                    pcall(function()
+                        d:GetPropertyChangedSignal("Text"):Connect(function() hideStatus(d) end)
+                    end)
+                end
+            end)
+            G.__LestWatch = G.__LestWatch or {}
+            table.insert(G.__LestWatch, conn)
+        end)
+    end
+    if G.__LestWatch then
+        for _, c in ipairs(G.__LestWatch) do pcall(function() c:Disconnect() end) end
+    end
+    G.__LestWatch = {}
+    local hui = nil
+    pcall(function() if gethui then hui = gethui() end end)
+    watch(hui)
+    watch(game:GetService("CoreGui"))
+    watch(game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui"))
+
+    -- Judul menu
     pcall(function()
         local create = WindUI.CreateWindow
         WindUI.CreateWindow = function(self, cfg, ...)
             if type(cfg) == "table" then
+                cfg.Title = "LestHub"
                 cfg.Transparent = false
                 cfg.HideSearchBar = true
                 cfg.Resizable = false
@@ -401,7 +443,8 @@ WindUI = downloadWindUI()()
             end
             return win
         end
-    end)]==], false)
+    end)
+end]==], false)
 
     if LITE then
         local a7 = "if (Config.Data.Version == nil or Config.Data.Version == 1) and State.AfterBreakMs == 300 then"
