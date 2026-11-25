@@ -3,7 +3,7 @@ local OWNER, REPO, BRANCH = "Anounyes", "lest", "main"
 local MAIN_FILE, BOOT_FILE = "gentah4x.lua.txt", "lest-test.lua.txt"
 local LITE = true
 local LOGO_TEXT, LOGO_COLOR = "L", "FF5FA8"
-local THEME = "sein" -- "sein" (cincin hijau) atau "pink" (cincin pink-ungu)
+local THEME = "pink" -- "sein" (cincin hijau) atau "pink" (cincin pink-ungu)
 
 local THEMES = {
     sein = { rimA = "568040", rimB = "74C658", rimC = "8AD66E", tile = "2E2925", inner = "1C1815", innerRim = "4A423B" },
