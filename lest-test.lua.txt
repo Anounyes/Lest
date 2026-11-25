@@ -3,7 +3,7 @@ local OWNER, REPO, BRANCH = "Anounyes", "lest", "main"
 local MAIN_FILE, BOOT_FILE = "gentah4x.lua.txt", "lest-test.lua.txt"
 local LITE = true
 local LOGO_TEXT, LOGO_COLOR = "L", "FF5FA8"
-local THEME = "pink" -- "sein" (cincin hijau) atau "pink" (cincin pink-ungu)
+local THEME = "sein" -- "sein" (cincin hijau) atau "pink" (cincin pink-ungu)
 
 local THEMES = {
     sein = { rimA = "568040", rimB = "74C658", rimC = "8AD66E", tile = "2E2925", inner = "1C1815", innerRim = "4A423B" },
@@ -468,4 +468,41 @@ local function run()
         local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
         if type(q) == "function" and not G.__LestQueued then
             G.__LestQueued = true
-            q('l
+            q('loadstring(game:HttpGet("' .. BASE .. BOOT_FILE .. '?t=" .. os.time()))()')
+        end
+    end)
+
+    stage = "tunggu game"
+    if not game:IsLoaded() then game.Loaded:Wait() end
+    local Players = game:GetService("Players")
+    local t0 = os.clock()
+    while not Players.LocalPlayer and os.clock() - t0 < 30 do task.wait(0.1) end
+    if not Players.LocalPlayer then error("LocalPlayer belum tersedia", 0) end
+
+    stage = "tombol panel"
+    local okBtn, errBtn = pcall(makeButton)
+    if not okBtn then
+        G.__LestUI.keepOpen = true
+        alert("Tombol gagal dibuat, menu dibuka langsung: " .. tostring(errBtn))
+    end
+
+    stage = "migrasi config"
+    pcall(function()
+        local uid = Players.LocalPlayer.UserId
+        local old, new = "GentaH4xOpus/config_" .. uid .. ".json", "LestOpus/config_" .. uid .. ".json"
+        if isfile and readfile and writefile and isfile(old) and not isfile(new) then
+            if makefolder and isfolder and not isfolder("LestOpus") then makefolder("LestOpus") end
+            writefile(new, readfile(old))
+        end
+    end)
+
+    stage = "muat script utama"
+    runMain()
+    G.__LestReady = true
+end
+
+local okRun, errRun = xpcall(run, debug.traceback)
+G.__LestBusy = nil
+if not okRun then
+    alert("Gagal di tahap '" .. stage .. "': " .. tostring(errRun))
+end
