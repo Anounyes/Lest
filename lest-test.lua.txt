@@ -1,0 +1,471 @@
+-- LestHub boot v4 (tes)
+local OWNER, REPO, BRANCH = "Anounyes", "lest", "main"
+local MAIN_FILE, BOOT_FILE = "gentah4x.lua.txt", "lest-test.lua.txt"
+local LITE = true
+local LOGO_TEXT, LOGO_COLOR = "L", "FF5FA8"
+local THEME = "pink" -- "sein" (cincin hijau) atau "pink" (cincin pink-ungu)
+
+local THEMES = {
+    sein = { rimA = "568040", rimB = "74C658", rimC = "8AD66E", tile = "2E2925", inner = "1C1815", innerRim = "4A423B" },
+    pink = { rimA = "B14DFF", rimB = "FF5FA8", rimC = "FF9AC8", tile = "241631", inner = "170E21", innerRim = "4A2C66" },
+}
+local P = THEMES[THEME] or THEMES.sein
+
+local G = (getgenv and getgenv()) or _G
+local BASE = "https://raw.githubusercontent.com/" .. OWNER .. "/" .. REPO .. "/refs/heads/" .. BRANCH .. "/"
+
+local function alert(msg)
+    warn("[Lest] " .. tostring(msg))
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Lest", Text = tostring(msg):sub(1, 180), Duration = 8,
+        })
+    end)
+end
+
+local function hex(h)
+    local ok, c = pcall(Color3.fromHex, h)
+    if ok and typeof(c) == "Color3" then return c end
+    return Color3.fromRGB(tonumber(h:sub(1, 2), 16) or 255, tonumber(h:sub(3, 4), 16) or 255, tonumber(h:sub(5, 6), 16) or 255)
+end
+
+-- Sudah jalan di server ini: Execute lagi cukup buka/tutup menu
+if G.__LestBtn and G.__LestBtn.Parent and G.__LestReady then
+    if G.__LestToggle then pcall(G.__LestToggle) end
+    return
+end
+if G.__LestBusy and os.clock() - G.__LestBusy < 90 then
+    return alert("Masih dimuat, tunggu sebentar lalu coba lagi")
+end
+G.__LestBusy, G.__LestReady = os.clock(), false
+G.__LestUI = { touched = false, wantOpen = false, keepOpen = false }
+
+local function toggleMenu()
+    local ui = G.__LestUI
+    ui.touched = true
+    local win = G.__LestOpus and G.__LestOpus.Window
+    if not win then
+        if not ui.wantOpen then alert("Menu masih dimuat, tunggu sebentar") end
+        ui.wantOpen = true
+        return
+    end
+    local closed = win.Closed
+    if type(closed) ~= "boolean" then closed = not ui.open end
+    pcall(function() if closed then win:Open() else win:Close() end end)
+    ui.open = closed
+end
+
+local function makeButton()
+    G.__LestToggle = nil
+    if G.__LestInputConn then pcall(function() G.__LestInputConn:Disconnect() end) end
+    if G.__LestBtn then pcall(function() G.__LestBtn:Destroy() end) end
+    local UIS = game:GetService("UserInputService")
+    local HttpService = game:GetService("HttpService")
+    local TweenService = game:GetService("TweenService")
+    local SIZE, POS_FILE = 54, "LestOpus/button.json"
+
+    local function viewport()
+        local cam = workspace.CurrentCamera
+        local v = cam and cam.ViewportSize
+        if v and v.X > 0 then return v.X, v.Y end
+        return 800, 400
+    end
+    local function loadPos()
+        local ok, data = pcall(function()
+            if isfile and readfile and isfile(POS_FILE) then
+                return HttpService:JSONDecode(readfile(POS_FILE))
+            end
+        end)
+        if ok and type(data) == "table" and type(data.x) == "number" then return data end
+    end
+    local function savePos(x, y)
+        pcall(function()
+            if makefolder and isfolder and not isfolder("LestOpus") then makefolder("LestOpus") end
+            writefile(POS_FILE, HttpService:JSONEncode({ x = x, y = y }))
+        end)
+    end
+
+    local parent
+    pcall(function() parent = gethui() end)
+    if not parent then pcall(function() parent = game:GetService("CoreGui") end) end
+    pcall(function()
+        local old = parent and parent:FindFirstChild("LestPanelBtn")
+        if old then old:Destroy() end
+    end)
+    local gui = Instance.new("ScreenGui")
+    gui.Name, gui.ResetOnSpawn, gui.DisplayOrder, gui.IgnoreGuiInset = "LestPanelBtn", false, 999, true
+    pcall(function() if syn and syn.protect_gui then syn.protect_gui(gui) end end)
+    local placed = parent and pcall(function() gui.Parent = parent end)
+    if not placed or not gui.Parent then
+        local lp = game:GetService("Players").LocalPlayer
+        gui.Parent = lp:FindFirstChildOfClass("PlayerGui") or lp:WaitForChild("PlayerGui", 10)
+    end
+    G.__LestBtn = gui
+
+    local vw, vh = viewport()
+    local saved = loadPos()
+    local px = saved and math.clamp(saved.x * vw, 0, vw - SIZE) or 14
+    local py = saved and math.clamp(saved.y * vh, 0, vh - SIZE) or (vh / 2 - SIZE / 2)
+
+    -- Lencana bulat: dasar + cincin gradasi berputar
+    local btn = Instance.new("TextButton")
+    btn.Size, btn.Position = UDim2.fromOffset(SIZE, SIZE), UDim2.fromOffset(px, py)
+    btn.BackgroundColor3, btn.AutoButtonColor, btn.Text = hex(P.tile), false, ""
+    btn.Parent = gui
+
+    local scale = Instance.new("UIScale")
+    scale.Parent = btn
+
+    pcall(function()
+        local round = Instance.new("UICorner")
+        round.CornerRadius = UDim.new(1, 0)
+        round.Parent = btn
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color, stroke.Thickness = Color3.new(1, 1, 1), 2.5
+        stroke.Parent = btn
+        local rim = Instance.new("UIGradient")
+        rim.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, hex(P.rimA)),
+            ColorSequenceKeypoint.new(0.5, hex(P.rimB)),
+            ColorSequenceKeypoint.new(1, hex(P.rimC)),
+        })
+        rim.Parent = stroke
+        if G.__LestRimTween then pcall(function() G.__LestRimTween:Cancel() end) end
+        G.__LestRimTween = TweenService:Create(rim,
+            TweenInfo.new(2.5, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1), { Rotation = 360 })
+        G.__LestRimTween:Play()
+
+        -- Piringan dalam yang lebih gelap
+        local inner = Instance.new("Frame")
+        inner.Size, inner.Position = UDim2.new(1, -10, 1, -10), UDim2.fromOffset(5, 5)
+        inner.BackgroundColor3, inner.BorderSizePixel = hex(P.inner), 0
+        inner.Parent = btn
+        local innerRound = Instance.new("UICorner")
+        innerRound.CornerRadius = UDim.new(1, 0)
+        innerRound.Parent = inner
+        local innerStroke = Instance.new("UIStroke")
+        innerStroke.Color, innerStroke.Thickness = hex(P.innerRim), 1
+        innerStroke.Parent = inner
+        local shade = Instance.new("UIGradient")
+        shade.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(0.68, 0.68, 0.68))
+        shade.Rotation = 90
+        shade.Parent = inner
+
+        -- Kilau tipis di atas
+        local gloss = Instance.new("Frame")
+        gloss.Size, gloss.Position = UDim2.new(0.6, 0, 0.3, 0), UDim2.new(0.2, 0, 0.07, 0)
+        gloss.BackgroundColor3, gloss.BackgroundTransparency, gloss.BorderSizePixel = Color3.new(1, 1, 1), 0.8, 0
+        gloss.Parent = inner
+        local glossRound = Instance.new("UICorner")
+        glossRound.CornerRadius = UDim.new(1, 0)
+        glossRound.Parent = gloss
+        local glossFade = Instance.new("UIGradient")
+        glossFade.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.1),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        glossFade.Rotation = 90
+        glossFade.Parent = gloss
+    end)
+
+    -- Huruf pink bergradasi
+    local letter = Instance.new("TextLabel")
+    letter.Size, letter.BackgroundTransparency = UDim2.fromScale(1, 1), 1
+    letter.Text, letter.Font = LOGO_TEXT, Enum.Font.GothamBlack
+    letter.TextSize = #LOGO_TEXT > 1 and 17 or 29
+    letter.TextColor3, letter.TextStrokeColor3 = Color3.new(1, 1, 1), Color3.fromRGB(24, 8, 18)
+    letter.TextStrokeTransparency, letter.ZIndex = 0.35, 3
+    letter.Parent = btn
+    pcall(function()
+        local lg = Instance.new("UIGradient")
+        lg.Color = ColorSequence.new(hex("FFC2E0"), hex(LOGO_COLOR))
+        lg.Rotation = 90
+        lg.Parent = letter
+    end)
+
+    local function press(on)
+        pcall(function()
+            TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { Scale = on and 0.9 or 1 }):Play()
+        end)
+    end
+
+    local drag, origin, startX, startY, moved
+    btn.InputBegan:Connect(function(input)
+        local t = input.UserInputType
+        if drag or (t ~= Enum.UserInputType.Touch and t ~= Enum.UserInputType.MouseButton1) then return end
+        drag, origin, moved = input, input.Position, false
+        startX, startY = btn.Position.X.Offset, btn.Position.Y.Offset
+        press(true)
+        input.Changed:Connect(function()
+            if input.UserInputState ~= Enum.UserInputState.End or drag ~= input then return end
+            drag = nil
+            press(false)
+            if moved then
+                local w, h = viewport()
+                savePos(btn.Position.X.Offset / w, btn.Position.Y.Offset / h)
+            else
+                toggleMenu()
+            end
+        end)
+    end)
+    G.__LestInputConn = UIS.InputChanged:Connect(function(input)
+        if not drag or (input ~= drag and input.UserInputType ~= Enum.UserInputType.MouseMovement) then return end
+        local d = input.Position - origin
+        if d.Magnitude > 6 then moved = true end
+        if moved then
+            local w, h = viewport()
+            btn.Position = UDim2.fromOffset(
+                math.clamp(startX + d.X, 0, w - SIZE),
+                math.clamp(startY + d.Y, 0, h - SIZE))
+        end
+    end)
+    G.__LestToggle = toggleMenu
+end
+
+-- Tambalan 1: pemindaian cepat
+local FAST = [==[
+local function inspectValue(target, value, object)
+        if type(value) ~= "table" then return end
+        local items, looked = false, 0
+        for _, entry in pairs(value) do
+            looked += 1
+            if type(entry) == "table" and type(rawget(entry, "name")) == "string" then items = true break end
+            if looked >= 4 then break end
+        end
+        local api = rawget(value, "call") or rawget(value, "new") or rawget(value, "mount")
+            or rawget(value, "isDeveloper") or rawget(value, "play") or rawget(value, "add") or rawget(value, "on")
+        if not items and not api then return end
+        return inspectValueSlow(target, value, object)
+    end
+]==]
+
+-- Tambalan 2: cadangan ItemDB (ambigu) dan cache per server
+local WRAP = [==[
+local function structuralModule(name, retry)
+        local key = "__LestCache_" .. tostring(game.JobId) .. "_" .. name
+        local cached = G[key]
+        if cached then
+            local okc, yes = pcall(matches, name, cached)
+            if okc and yes then return cached end
+        end
+        local value, object, reason = structuralModuleRaw(name, retry)
+        if value == nil and name == "ItemDB" then
+            local best, bestN = nil, -1
+            local sources = { runtimeMatches and runtimeMatches[name] or false, filteredMatches and filteredMatches[name] or false }
+            for _, m in ipairs(sources) do
+                for _, cand in ipairs(type(m) == "table" and m.Candidates or {}) do
+                    local n = 0
+                    for id in pairs(cand.Value) do
+                        if type(id) == "number" then n += 1 end
+                    end
+                    if n > bestN then best, bestN = cand, n end
+                end
+            end
+            if best then value, object, reason = best.Value, best.Object, nil end
+        end
+        if value ~= nil then G[key] = value end
+        return value, object, reason
+    end
+]==]
+
+-- Tambalan 3: judul LestHub, sembunyikan status, menu tertutup saat dibuat
+local UIBLOCK = [==[WindUI = downloadWindUI()()
+do
+    local KEYS = { "Pukul:", "Pohon:", "Animasi:", "Dropdown:", "setTile:", "Inventori:", "Pemain:", "Posisi:", "Drop: OK", "World: OK" }
+    local function isStatus(t)
+        if type(t) ~= "string" then return false end
+        if t:find("v%d+%.%d") and t:find("Lest", 1, true) then return true end
+        for _, k in ipairs(KEYS) do
+            if t:find(k, 1, true) then return true end
+        end
+        return false
+    end
+    local function check(obj)
+        if not (obj:IsA("TextLabel") or obj:IsA("TextButton")) or not isStatus(obj.Text) then return end
+        pcall(function() obj.Visible = false end)
+        local node = obj.Parent
+        for _ = 1, 4 do
+            if not node or node:IsA("ScreenGui") then break end
+            local n = string.lower(node.Name)
+            if n:find("notif", 1, true) or n:find("toast", 1, true) or n:find("popup", 1, true) then
+                pcall(function() node.Visible = false end)
+                break
+            end
+            node = node.Parent
+        end
+    end
+    pcall(function()
+        local original = WindUI.Notify
+        if type(original) ~= "function" then return end
+        WindUI.Notify = function(self, cfg, ...)
+            local data = (cfg == nil and type(self) == "table" and self) or cfg
+            if type(data) == "table" and (isStatus(data.Title) or isStatus(data.Content)) then
+                G.__LestStatus = tostring(data.Content or "")
+                return setmetatable({}, { __index = function() return function() end end })
+            end
+            return original(self, cfg, ...)
+        end
+    end)
+    G.__LestSweep = (G.__LestSweep or 0) + 1
+    local token = G.__LestSweep
+    for _, conn in ipairs(G.__LestWatch or {}) do pcall(function() conn:Disconnect() end) end
+    G.__LestWatch = {}
+    local hui
+    pcall(function() hui = gethui() end)
+    local lp = game:GetService("Players").LocalPlayer
+    local roots = { hui or false, game:GetService("CoreGui"), (lp and lp:FindFirstChildOfClass("PlayerGui")) or false }
+    for _, root in ipairs(roots) do
+        if root then
+            pcall(function()
+                for _, d in ipairs(root:GetDescendants()) do check(d) end
+                table.insert(G.__LestWatch, root.DescendantAdded:Connect(check))
+            end)
+        end
+    end
+    if hui then
+        task.spawn(function()
+            while G.__LestSweep == token do
+                task.wait(2)
+                pcall(function()
+                    for _, d in ipairs(hui:GetDescendants()) do check(d) end
+                end)
+            end
+        end)
+    end
+    pcall(function()
+        local create = WindUI.CreateWindow
+        if type(create) ~= "function" then return end
+        WindUI.CreateWindow = function(self, cfg, ...)
+            if type(cfg) == "table" then
+                cfg.Title = "LestHub"
+                cfg.Transparent = false
+                cfg.Resizable = false
+            end
+            local win = create(self, cfg, ...)
+            Session.Window = win
+            pcall(function() win:EditOpenButton({ Enabled = false }) end)
+            local ui = G.__LestUI
+            if ui and not (ui.wantOpen or ui.keepOpen) then
+                task.spawn(function()
+                    for _, pause in ipairs({ 0, 0.3, 0.8, 1.6 }) do
+                        if pause > 0 then task.wait(pause) end
+                        if ui.touched or ui.wantOpen then return end
+                        pcall(function() if win.Closed ~= true then win:Close() end end)
+                    end
+                end)
+            end
+            return win
+        end
+    end)
+end]==]
+
+-- Tambalan 4: simpan WindUI di HP selama 3 hari
+local CACHE = [==[do
+    local rawDownload = Session.download
+    if type(rawDownload) == "function" then
+        Session.download = function(url)
+            local isUI = type(url) == "string" and url:lower():find("windui", 1, true) ~= nil
+            if not isUI or type(isfile) ~= "function" or type(readfile) ~= "function" or type(writefile) ~= "function" then
+                return rawDownload(url)
+            end
+            local dataFile, timeFile = "LestOpus/windui.cache", "LestOpus/windui.time"
+            local okc, cached = pcall(function()
+                if isfile(dataFile) and isfile(timeFile) then
+                    local age = os.time() - (tonumber(readfile(timeFile)) or 0)
+                    if age >= 0 and age < 259200 then
+                        local data = readfile(dataFile)
+                        if type(data) == "string" and #data > 1000 and data:find("CreateWindow", 1, true) then return data end
+                    end
+                end
+            end)
+            if okc and cached then return cached end
+            local data = rawDownload(url)
+            pcall(function()
+                if type(data) == "string" and #data > 1000 then
+                    if type(makefolder) == "function" and type(isfolder) == "function" and not isfolder("LestOpus") then makefolder("LestOpus") end
+                    writefile(dataFile, data)
+                    writefile(timeFile, tostring(os.time()))
+                end
+            end)
+            return data
+        end
+    end
+end
+]==]
+
+local function rename(s)
+    s = s:gsub("gentasaja", "\1KEEP\1")
+    s = s:gsub("[Gg][Ee][Nn][Tt][Aa]%s?[Hh]4[Xx]", "Lest")
+    s = s:gsub("[Gg][Ee][Nn][Tt][Aa]", "Lest")
+    s = s:gsub("\1KEEP\1", "gentasaja")
+    return s
+end
+
+local function buildSource(src)
+    local out, applied, skipped = src, {}, {}
+    local function swap(label, old, new)
+        local i, j = out:find(old, 1, true)
+        if i then
+            out = out:sub(1, i - 1) .. new .. out:sub(j + 1)
+            applied[#applied + 1] = label
+        else
+            skipped[#skipped + 1] = label
+        end
+    end
+    local function at(text)
+        return out:find(text, 1, true) or math.huge
+    end
+
+    local a = at("local function inspectValue(target, value, object)")
+    local b = at("local filteredMatches, filteredTried = {}, false")
+    if a < b and b < math.huge then
+        swap("inspect", "local function inspectValue(target, value, object)", "local function inspectValueSlow(target, value, object)")
+        swap("inspect-cepat", "local filteredMatches, filteredTried = {}, false", FAST .. "local filteredMatches, filteredTried = {}, false")
+    end
+
+    local c = at("local function structuralModule(name, retry)")
+    local d = at("local function loadModule(parent, name, required)")
+    if c < d and d < math.huge then
+        swap("struktur", "local function structuralModule(name, retry)", "local function structuralModuleRaw(name, retry)")
+        swap("cadangan-ItemDB", "local function loadModule(parent, name, required)", WRAP .. "local function loadModule(parent, name, required)")
+    end
+
+    swap("jeda", "if visited % 1000 == 0 then task.wait() end", "if visited % 250 == 0 then task.wait() end")
+    if LITE then
+        local lite = "if (Config.Data.Version == nil or Config.Data.Version == 1) and State.AfterBreakMs == 300 then"
+        swap("ringan", lite, "pcall(function() State.LiteMode = true; State.Visual = false; State.MutePunch = true end)\n" .. lite)
+    end
+    swap("status-judul", "WindUI = downloadWindUI()()", UIBLOCK)
+    local printLine = 'print("[GentaH4x] Memuat build " .. Session.Build)'
+    swap("cache-windui", printLine, CACHE .. printLine)
+    return out, applied, skipped
+end
+
+local function runMain()
+    local okGet, src = pcall(function()
+        return game:HttpGet(BASE .. MAIN_FILE .. "?t=" .. tostring(os.time()))
+    end)
+    if not okGet or type(src) ~= "string" or #src < 1000 then
+        error("gagal unduh script utama: " .. tostring(src):sub(1, 120), 0)
+    end
+    local patched, applied, skipped = buildSource(src)
+    warn("[Lest] tambalan: " .. table.concat(applied, ", ") .. " | dilewati: " .. table.concat(skipped, ", "))
+    local fn, err = loadstring(rename(patched), "lest-main")
+    if not fn then
+        warn("[Lest] tambalan gagal dikompilasi, memakai versi asli: " .. tostring(err))
+        fn, err = loadstring(rename(src), "lest-main")
+        if not fn then error("script utama gagal dikompilasi: " .. tostring(err), 0) end
+    end
+    local ran, res = xpcall(fn, debug.traceback)
+    if not ran then error(res, 0) end
+end
+
+local stage = "mulai"
+local function run()
+    stage = "antrean teleport"
+    pcall(function()
+        local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+        if type(q) == "function" and not G.__LestQueued then
+            G.__LestQueued = true
+            q('l
