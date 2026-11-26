@@ -1,4 +1,4 @@
--- LestHub boot v8 (Pencatat + World Finder + sambung otomatis + layar diagnosis)
+-- LestHub boot v9 (Pencatat + World Finder + sambung otomatis + diagnosis)
 local OWNER, REPO, BRANCH = "Anounyes", "lest", "main"
 local MAIN_FILE, BOOT_FILE = "gentah4x.lua.txt", "lest-test.lua.txt"
 local LITE = true
@@ -976,6 +976,24 @@ task.spawn(function()
         end)
     end
 end)
+
+task.spawn(function()
+    local was = false
+    while alive() do
+        task.wait(1)
+        pcall(function()
+            local running = WorldFinder.Running == true
+            if was and not running and G.__LestShow then
+                task.wait(1)
+                local out = { "FINDER BERHENTI | " .. tostring(WorldFinder.Status):sub(1, 220) }
+                local logs = WorldFinder.Logs or {}
+                for i = math.max(1, #logs - 18), #logs do out[#out + 1] = tostring(logs[i]):sub(1, 170) end
+                G.__LestShow(table.concat(out, "\n"))
+            end
+            was = running
+        end)
+    end
+end)
 ]==]
 
 local MENU_OLD = [==[local ok, isMenu = pcall(function()
@@ -985,6 +1003,24 @@ local MENU_NEW = [==[local ok, isMenu = pcall(function()
                 return (type(rawget(v, "openBackpack")) == "function" and type(rawget(v, "ui")) == "table")
                     or (type(rawget(v, "openPicker")) == "function" and type(rawget(v, "enter")) == "function")
             end)]==]
+
+local L1_OLD = [==[        if m and type(rawget(m, "openPicker")) == "function" and pcall(m.openPicker) then
+            return true
+        end]==]
+local L1_NEW = [==[        if m and type(rawget(m, "openPicker")) == "function" then
+            local okp, errp = pcall(m.openPicker)
+            pcall(WorldFinder.log, "[dbg] openPicker ok=" .. tostring(okp) .. " " .. tostring(errp))
+            if okp then return true end
+        end]==]
+local L2_OLD = [==[            return (pcall(w.call, "LeaveWorld"))]==]
+local L2_NEW = [==[            local okc, errc = pcall(w.call, "LeaveWorld")
+            pcall(WorldFinder.log, "[dbg] call LeaveWorld ok=" .. tostring(okc) .. " " .. tostring(errc))
+            return okc]==]
+local E_OLD = [==[            local ok, res, msg, hopping = pcall(m.enter, name)
+            if not ok then return false, strip(res) end]==]
+local E_NEW = [==[            local ok, res, msg, hopping = pcall(m.enter, name)
+            pcall(WorldFinder.log, ("[dbg] enter ok=%s res=%s msg=%s hop=%s"):format(tostring(ok), tostring(res), tostring(msg), tostring(hopping)))
+            if not ok then return false, strip(res) end]==]
 
 local function rename(s)
     s = s:gsub("gentasaja", "\1KEEP\1")
@@ -1024,6 +1060,9 @@ local function buildSource(src)
     end
 
     swap("menu-lebih-luas", MENU_OLD, MENU_NEW)
+    swap("log-keluar", L1_OLD, L1_NEW)
+    swap("log-keluar2", L2_OLD, L2_NEW)
+    swap("log-masuk", E_OLD, E_NEW)
     swap("jeda", "if visited % 1000 == 0 then task.wait() end", "if visited % 250 == 0 then task.wait() end")
     if LITE then
         local lite = "if (Config.Data.Version == nil or Config.Data.Version == 1) and State.AfterBreakMs == 300 then"
@@ -1069,87 +1108,8 @@ local function buildSource(src)
 end
 
 
--- Layar diagnosis: kumpulkan data tentang game yang berubah, tampil sebagai panel yang bisa di-screenshot
-local function runDiag()
-    local lines = {}
-    local function add(t) lines[#lines + 1] = tostring(t) end
-    local function has(f) return type(f) == "function" and "ya" or "tidak" end
-    add("LEST DIAG | executor: " .. tostring((identifyexecutor and identifyexecutor()) or "?"))
-    add(("api getgc=%s getconstants=%s getupvalues=%s getconnections=%s filtergc=%s isexecutorclosure=%s"):format(
-        has(getgc), has((debug and debug.getconstants) or getconstants), has((debug and debug.getupvalues) or getupvalues),
-        has(getconnections), has(filtergc), has(isexecutorclosure)))
-    local R = G.__LestRefs
-    if type(R) == "table" then
-        pcall(function() add(G.__LestRefsText()) end)
-        add(("Refs: Menu=%s Punch=%s Trees=%s Arm=%s Hud=%s Gems=%s"):format(
-            tostring(R.Menu ~= nil), tostring(R.Punch ~= nil), tostring(R.Trees ~= nil),
-            tostring(R.Arm ~= nil), tostring(R.Hud ~= nil), tostring(R.Gems ~= nil)))
-        pcall(function()
-            local names = {}
-            for k, v in pairs(R.World or {}) do
-                if type(k) == "string" then names[#names + 1] = k .. (type(v) == "function" and "()" or (type(v) == "table" and "{}" or "")) end
-            end
-            table.sort(names)
-            add("World: " .. table.concat(names, " "):sub(1, 700))
-        end)
-        pcall(function()
-            if R.Menu then
-                local names = {}
-                for k, v in pairs(R.Menu) do if type(k) == "string" then names[#names + 1] = k .. (type(v) == "function" and "()" or "") end end
-                table.sort(names)
-                add("Menu: " .. table.concat(names, " "):sub(1, 400))
-            end
-        end)
-    else
-        add("Refs tidak terekspor (tambalan sambung-otomatis tidak terpasang)")
-    end
-    local gcOk, objs = pcall(function() return getgc(true) end)
-    if gcOk and type(objs) == "table" then
-        local gcons = (debug and debug.getconstants) or getconstants
-        local vend, crack, arm, menus, nfn, ntb = {}, 0, { forearm = 0, heldReach = 0, punchReach = 0 }, {}, 0, 0
-        local n = 0
-        for _, v in pairs(objs) do
-            n += 1
-            if n % 3000 == 0 then task.wait() end
-            local t = type(v)
-            if t == "function" and gcons then
-                nfn += 1
-                local ok, consts = pcall(gcons, v)
-                if ok and type(consts) == "table" then
-                    local hasVend, vtxt = false, {}
-                    for _, c in pairs(consts) do
-                        if type(c) == "string" then
-                            local low = c:lower()
-                            if low:find("vending", 1, true) then hasVend = true end
-                            if c == "newCrack" or c == "HarvestProvider" or low:find("crack", 1, true) then crack += 1 end
-                            if arm[c] then arm[c] += 1 end
-                            if #vtxt < 14 then vtxt[#vtxt + 1] = c:sub(1, 26) end
-                        end
-                    end
-                    if hasVend and #vend < 3 then vend[#vend + 1] = table.concat(vtxt, " | ") end
-                end
-            elseif t == "table" then
-                ntb += 1
-                if #menus < 2 then
-                    local ok = pcall(function()
-                        if type(rawget(v, "enter")) == "function" or type(rawget(v, "openPicker")) == "function" or type(rawget(v, "openBackpack")) == "function" then
-                            local names = {}
-                            for k, val in pairs(v) do if type(k) == "string" then names[#names + 1] = k .. (type(val) == "function" and "()" or "") end end
-                            table.sort(names)
-                            menus[#menus + 1] = table.concat(names, " "):sub(1, 300)
-                        end
-                    end)
-                end
-            end
-        end
-        add(("gc: fungsi=%d tabel=%d | konstanta 'crack'=%d | forearm=%d heldReach=%d punchReach=%d"):format(
-            nfn, ntb, crack, arm.forearm, arm.heldReach, arm.punchReach))
-        for i, v in ipairs(vend) do add("fungsi vending " .. i .. ": " .. v) end
-        for i, v in ipairs(menus) do add("tabel menu " .. i .. ": " .. v) end
-    else
-        add("getgc gagal: " .. tostring(objs))
-    end
-    local text = table.concat(lines, "\n")
+-- Panel teks yang bisa digulir dan di-screenshot (juga disalin ke clipboard dan disimpan ke LestOpus/diag.txt)
+local function showPanel(text)
     pcall(function() if setclipboard then setclipboard(text) end end)
     pcall(function()
         if writefile then
@@ -1161,6 +1121,10 @@ local function runDiag()
     pcall(function() parent = gethui and gethui() end)
     if not parent then pcall(function() parent = game:GetService("CoreGui") end) end
     if not parent then parent = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui") end
+    pcall(function()
+        local old = parent:FindFirstChild("LestDiag")
+        if old then old:Destroy() end
+    end)
     local gui = Instance.new("ScreenGui")
     gui.Name, gui.ResetOnSpawn, gui.DisplayOrder = "LestDiag", false, 999
     gui.Parent = parent
@@ -1178,13 +1142,65 @@ local function runDiag()
     label.Text = text
     label.Parent = frame
     local close = Instance.new("TextButton")
-    close.Size, close.Position = UDim2.fromOffset(90, 32), UDim2.new(1, -100, 0, 4)
+    close.Size, close.Position = UDim2.fromOffset(90, 32), UDim2.fromScale(0.84, 0.06)
     close.Text, close.BackgroundColor3, close.TextColor3 = "Tutup", Color3.fromRGB(180, 60, 90), Color3.new(1, 1, 1)
     close.ZIndex = 5
     close.Parent = gui
-    close.AnchorPoint = Vector2.new(0, 0)
-    close.Position = UDim2.fromScale(0.84, 0.06)
     close.MouseButton1Click:Connect(function() gui:Destroy() end)
+end
+
+local function runDiag()
+    local lines = {}
+    local function add(t) lines[#lines + 1] = tostring(t) end
+    add("LEST DIAG v9 | executor: " .. tostring((identifyexecutor and identifyexecutor()) or "?"))
+    local R = G.__LestRefs
+    if type(R) == "table" then
+        pcall(function() add(G.__LestRefsText()) end)
+        add(("Refs: Menu=%s Punch=%s Trees=%s Arm=%s"):format(
+            tostring(R.Menu ~= nil), tostring(R.Punch ~= nil), tostring(R.Trees ~= nil), tostring(R.Arm ~= nil)))
+        pcall(function()
+            local names = {}
+            for k, v in pairs(R.World or {}) do
+                if type(k) == "string" and type(v) == "function" then names[#names + 1] = k end
+            end
+            table.sort(names)
+            add("World fungsi: " .. table.concat(names, " "):sub(1, 1500))
+        end)
+    else
+        add("Refs tidak terekspor (tambalan sambung-otomatis tidak terpasang)")
+    end
+    local gcOk, objs = pcall(function() return getgc(true) end)
+    if gcOk and type(objs) == "table" then
+        local gcons = (debug and debug.getconstants) or getconstants
+        local vend, cracks, n = {}, {}, 0
+        for _, v in pairs(objs) do
+            n += 1
+            if n % 3000 == 0 then task.wait() end
+            if type(v) == "function" and gcons then
+                local ok, consts = pcall(gcons, v)
+                if ok and type(consts) == "table" then
+                    local hasVend, hasCrack, strs = false, false, {}
+                    for _, c in pairs(consts) do
+                        if type(c) == "string" then
+                            local low = c:lower()
+                            if low:find("vending", 1, true) then hasVend = true end
+                            if low:find("crack", 1, true) then hasCrack = true end
+                            if #strs < 8 then strs[#strs + 1] = c:sub(1, 18) end
+                        end
+                    end
+                    if hasVend and #vend < 3 then vend[#vend + 1] = table.concat(strs, " | ") end
+                    if hasCrack and #cracks < 8 then cracks[#cracks + 1] = table.concat(strs, " | ") end
+                end
+            end
+        end
+        add("fungsi 'vending': " .. #vend)
+        for i, v in ipairs(vend) do add(" v" .. i .. ": " .. v) end
+        add("fungsi 'crack': " .. #cracks .. " (maks 8)")
+        for i, v in ipairs(cracks) do add(" c" .. i .. ": " .. v) end
+    else
+        add("getgc gagal: " .. tostring(objs))
+    end
+    showPanel(table.concat(lines, "\n"))
 end
 
 local function runMain()
@@ -1242,6 +1258,7 @@ local function run()
     end)
 
     stage = "muat script utama"
+    if DIAG then G.__LestShow = showPanel end
     runMain()
     G.__LestReady = true
     if DIAG then task.delay(25, function() pcall(runDiag) end) end
