@@ -1,4 +1,4 @@
--- LestHub boot v5 (tes: Pencatat + World Finder)
+-- LestHub boot v6 (Pencatat + World Finder, auto farming dipulihkan)
 local OWNER, REPO, BRANCH = "Anounyes", "lest", "main"
 local MAIN_FILE, BOOT_FILE = "gentah4x.lua.txt", "lest-test.lua.txt"
 local LITE = true
@@ -223,22 +223,7 @@ local function makeButton()
     G.__LestToggle = toggleMenu
 end
 
--- Tambalan 1: pemindaian cepat
-local FAST = [==[
-local function inspectValue(target, value, object)
-        if type(value) ~= "table" then return end
-        local items, looked = false, 0
-        for _, entry in pairs(value) do
-            looked += 1
-            if type(entry) == "table" and type(rawget(entry, "name")) == "string" then items = true break end
-            if looked >= 4 then break end
-        end
-        local api = rawget(value, "call") or rawget(value, "new") or rawget(value, "mount")
-            or rawget(value, "isDeveloper") or rawget(value, "play") or rawget(value, "add") or rawget(value, "on")
-        if not items and not api then return end
-        return inspectValueSlow(target, value, object)
-    end
-]==]
+-- (Tambalan pemindaian cepat dihapus: ia melewatkan modul game sehingga fitur auto tidak terhubung)
 
 -- Tambalan 2: cadangan ItemDB (ambigu) dan cache per server
 local WRAP = [==[
@@ -250,6 +235,12 @@ local function structuralModule(name, retry)
             if okc and yes then return cached end
         end
         local value, object, reason = structuralModuleRaw(name, retry)
+        for _ = 1, 2 do
+            if value ~= nil then break end
+            task.wait(1.5)
+            local okr, v2, o2 = pcall(structuralModuleRaw, name, true)
+            if okr and v2 ~= nil then value, object, reason = v2, o2, nil end
+        end
         if value == nil and name == "ItemDB" then
             local best, bestN = nil, -1
             local sources = { runtimeMatches and runtimeMatches[name] or false, filteredMatches and filteredMatches[name] or false }
@@ -852,7 +843,7 @@ local REC_UI = [==[
             safe(function()
                 controls:Dropdown({
                     Title = "Panjang nama (Pencatat)",
-                    Desc = "Dipakai saat Jenis nama = Pencatat",
+                    Desc = "Panjang nama yang dicatat",
                     Values = { "3 karakter", "4 karakter" },
                     Value = Rec.getLen() == 4 and "4 karakter" or "3 karakter",
                     Callback = function(value)
@@ -921,6 +912,17 @@ local REC_UI = [==[
     end
 ]==]
 
+local REC_HOOK = [==[
+        if WorldFinder.Rec then
+            pcall(WorldFinder.Rec.record, name, result.kind)
+            if result.kind == "unlocked" then
+                pcall(WorldFinder.log, "Pencatat: " .. tostring(name) .. " kosong, dicatat, lanjut cari")
+                pcall(function() result.kind = "locked" end)
+            end
+        elseif result.kind == "unlocked" then
+            notify("World Finder", message, 10)
+        end]==]
+
 local PICK_NEW = [==[local name = queue[index]
                     if WorldFinder.Rec then
                         local picked = WorldFinder.Rec.pick(index, queue)
@@ -955,13 +957,6 @@ local function buildSource(src)
         return out:find(text, 1, true) or math.huge
     end
 
-    local a = at("local function inspectValue(target, value, object)")
-    local b = at("local filteredMatches, filteredTried = {}, false")
-    if a < b and b < math.huge then
-        swap("inspect", "local function inspectValue(target, value, object)", "local function inspectValueSlow(target, value, object)")
-        swap("inspect-cepat", "local filteredMatches, filteredTried = {}, false", FAST .. "local filteredMatches, filteredTried = {}, false")
-    end
-
     local c = at("local function structuralModule(name, retry)")
     local d = at("local function loadModule(parent, name, required)")
     if c < d and d < math.huge then
@@ -980,7 +975,7 @@ local function buildSource(src)
 
     -- Pencatat + World Finder (semua jangkar harus ada, kalau tidak dilewati)
     local MODES_OLD = 'local modes = { "Campuran", "3 Huruf", "4 Huruf", "Kata Indonesia", "English Words", "BUY + Item", "Daftar sendiri" }'
-    local MODES_NEW = 'local modes = { "Campuran", "3 Huruf", "4 Huruf", "Kata Indonesia", "English Words", "BUY + Item", "Daftar sendiri", "Pencatat" }'
+    local MODES_NEW = 'local modes = { "Pencatat" }'
     local MODE_ASSIGN = "WorldFinder.Modes = modes"
     local LIMIT_OLD = "limit = math.clamp(math.floor(tonumber(limit) or 100), 1, 500)"
     local PICK_OLD = "local name = queue[index]"
@@ -992,10 +987,10 @@ local function buildSource(src)
     end
     if allThere then
         swap("pencatat-mode", MODES_OLD, MODES_NEW)
-        swap("pencatat-modul", MODE_ASSIGN, MODE_ASSIGN .. "\n" .. REC_LOGIC)
-        swap("pencatat-antrean", LIMIT_OLD, LIMIT_OLD .. '\n        if mode == "Pencatat" and WorldFinder.Rec then return WorldFinder.Rec.queue(limit) end')
+        swap("pencatat-modul", MODE_ASSIGN, MODE_ASSIGN .. "\npcall(function() WorldFinder.Mode = \"Pencatat\" end)\n" .. REC_LOGIC)
+        swap("pencatat-antrean", LIMIT_OLD, LIMIT_OLD .. '\n        if WorldFinder.Rec then return WorldFinder.Rec.queue(limit) end')
         swap("pencatat-pilih", PICK_OLD, PICK_NEW)
-        swap("pencatat-catat", RECORD_OLD, RECORD_OLD .. "\n        if WorldFinder.Rec then pcall(WorldFinder.Rec.record, name, result.kind) end")
+        swap("pencatat-catat", RECORD_OLD, REC_HOOK)
         swap("pencatat-menu", UI_OLD, REC_UI .. "\n" .. UI_OLD)
     else
         skipped[#skipped + 1] = "pencatat (jangkar tidak cocok)"
