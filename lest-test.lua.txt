@@ -1,9 +1,9 @@
--- LestHub boot v4 (tes)
+-- LestHub boot v5 (tes: Pencatat + World Finder)
 local OWNER, REPO, BRANCH = "Anounyes", "lest", "main"
 local MAIN_FILE, BOOT_FILE = "gentah4x.lua.txt", "lest-test.lua.txt"
 local LITE = true
 local LOGO_TEXT, LOGO_COLOR = "L", "FF5FA8"
-local THEME = "pink" -- "sein" (cincin hijau) atau "pink" (cincin pink-ungu)
+local THEME = "sein" -- "sein" (cincin hijau) atau "pink" (cincin pink-ungu)
 
 local THEMES = {
     sein = { rimA = "568040", rimB = "74C658", rimC = "8AD66E", tile = "2E2925", inner = "1C1815", innerRim = "4A423B" },
@@ -35,7 +35,7 @@ if G.__LestBtn and G.__LestBtn.Parent and G.__LestReady then
     return
 end
 if G.__LestBusy and os.clock() - G.__LestBusy < 90 then
-    return alert("Masih dimuat, tunggu sebentar lalu coba lagi")
+    return
 end
 G.__LestBusy, G.__LestReady = os.clock(), false
 G.__LestUI = { touched = false, wantOpen = false, keepOpen = false }
@@ -394,6 +394,544 @@ local CACHE = [==[do
 end
 ]==]
 
+-- Modul Pencatat (disisipkan ke World Finder) dan kontrolnya di menu
+local REC_LOGIC = [==[
+    -- ===== PENCATAT: pencatat world digabung dengan World Finder =====
+    WorldFinder.Rec = (function()
+        local Rec = {}
+        local HttpService = game:GetService("HttpService")
+        local FOLDER, FILE = "LestOpus", "LestOpus/recorder.json"
+        local LET, DIG = "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "0123456789"
+        local ALL, VOW = LET .. DIG, "AEIOU"
+        local CONSSTR = ""
+        for index = 1, #LET do
+            local ch = LET:sub(index, index)
+            if not VOW:find(ch, 1, true) then CONSSTR = CONSSTR .. ch end
+        end
+        local RARE_L, RARE_D = "QXZVY", "02689"
+        local ORDER = { "letters", "digits", "mixed", "vokal", "read" }
+        local LABEL = { letters = "Huruf", digits = "Angka", mixed = "Huruf dan Angka", vokal = "Huruf Vokal", read = "Angka Read" }
+        local TOTAL = {
+            [3] = { letters = 15371, digits = 1000, mixed = 23670, vokal = 2205, read = 4410 },
+            [4] = { letters = 445951, digits = 10000, mixed = 1168540, vokal = 11025, read = 44100 },
+        }
+        local PLACEHOLDER = "^PENCATAT%d+$"
+        local WANT = 300
+
+        local st = { len = 3, cat = "letters", res = {}, grp = {}, adapt = {}, dirty = {}, skipped = {} }
+        local pools, candCache, psy = {}, {}, {}
+
+        local function resOf(len, cat)
+            st.res[len] = st.res[len] or {}
+            st.res[len][cat] = st.res[len][cat] or {}
+            return st.res[len][cat]
+        end
+
+        -- ===== simpan / muat =====
+        local function save()
+            if type(writefile) ~= "function" then return end
+            pcall(function()
+                if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(FOLDER) then makefolder(FOLDER) end
+                local out = { v = 1, len = st.len, cat = st.cat, res = {} }
+                for len, cats in pairs(st.res) do out.res[tostring(len)] = cats end
+                writefile(FILE, HttpService:JSONEncode(out))
+            end)
+        end
+        local function load()
+            if type(isfile) ~= "function" or type(readfile) ~= "function" then return end
+            pcall(function()
+                if not isfile(FILE) then return end
+                local data = HttpService:JSONDecode(readfile(FILE))
+                if type(data) ~= "table" then return end
+                if data.len == 3 or data.len == 4 then st.len = data.len end
+                if type(data.cat) == "string" and LABEL[data.cat] then st.cat = data.cat end
+                for lenKey, cats in pairs(type(data.res) == "table" and data.res or {}) do
+                    local len = tonumber(lenKey)
+                    if (len == 3 or len == 4) and type(cats) == "table" then
+                        for cat, map in pairs(cats) do
+                            if LABEL[cat] and type(map) == "table" then
+                                local dst = resOf(len, cat)
+                                for name, value in pairs(map) do
+                                    if value == "k" or value == "t" then dst[name] = value end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+        load()
+
+        -- ===== kategori dan kelompok =====
+        local function isCons(ch) return CONSSTR:find(ch, 1, true) ~= nil end
+        local function isVow(ch) return VOW:find(ch, 1, true) ~= nil end
+        local function isDig(ch) return DIG:find(ch, 1, true) ~= nil end
+
+        local function catOf(w)
+            local n = #w
+            if (n ~= 3 and n ~= 4) or not w:match("^[A-Z0-9]+$") then return nil end
+            local c1, c2, c3, c4 = w:sub(1, 1), w:sub(2, 2), w:sub(3, 3), w:sub(4, 4)
+            if w:match("^%d+$") then return "digits" end
+            if w:match("^%u+$") then
+                if n == 3 then
+                    if isCons(c1) and isVow(c2) and isCons(c3) then return "vokal" end
+                elseif isCons(c1) and isVow(c2) and isCons(c3) and isVow(c4) then
+                    return "vokal"
+                end
+                return "letters"
+            end
+            if n == 3 then
+                if isCons(c1) and isDig(c2) and isCons(c3) then return "read" end
+            elseif isCons(c1) and isDig(c2) and isCons(c3) and isDig(c4) then
+                return "read"
+            end
+            return "mixed"
+        end
+
+        local function groupOf(w)
+            for index = 1, #w do
+                local ch = w:sub(index, index)
+                if RARE_L:find(ch, 1, true) or RARE_D:find(ch, 1, true) then return "B" end
+            end
+            return "A"
+        end
+
+        -- ===== skor adaptif (pola huruf/angka yang sering kosong) =====
+        local LW = { J = 3, Q = 3, X = 3, Z = 3, K = 2, V = 2, W = 2 }
+        local DW = { ["6"] = 2, ["8"] = 2, ["9"] = 2, ["0"] = 1, ["2"] = 1, ["3"] = -1, ["5"] = -1, ["7"] = -2 }
+        local CAP = {}
+        for word in ("GOD BOT MOD ADM VIP LOL OMG WTF XXX ZZZ GGG WWW KID BOY PRO OWN"):gmatch("%S+") do CAP[word] = true end
+
+        local function psych(w)
+            local cached = psy[w]
+            if cached ~= nil then return cached end
+            local score, seen, unique, codes = 0, {}, 0, {}
+            for index = 1, #w do
+                local ch = w:sub(index, index)
+                score += (LW[ch] or DW[ch] or 0)
+                codes[index] = ch:byte()
+                if not seen[ch] then seen[ch] = true unique += 1 end
+            end
+            if unique < #w then score -= 2 end
+            if #codes >= 3 then
+                local diff = codes[2] - codes[1]
+                local sequence = math.abs(diff) == 1
+                if sequence then
+                    for index = 3, #codes do
+                        if codes[index] - codes[index - 1] ~= diff then sequence = false break end
+                    end
+                end
+                if sequence then score -= 2 end
+            end
+            if #w == 3 and CAP[w] then score -= 3 end
+            psy[w] = score
+            return score
+        end
+
+        local function refreshAdapt(len, cat)
+            local stats, kosong, total = {}, 0, 0
+            for w, value in pairs(resOf(len, cat)) do
+                if value == "k" or value == "t" then
+                    total += 1
+                    if value == "k" then kosong += 1 end
+                    for index = 1, #w do
+                        local key = index .. w:sub(index, index)
+                        local entry = stats[key]
+                        if not entry then entry = { k = 0, n = 0 } stats[key] = entry end
+                        entry.n += 1
+                        if value == "k" then entry.k += 1 end
+                    end
+                end
+            end
+            st.adapt[len .. ":" .. cat] = { stats = stats, p0 = total > 0 and kosong / total or 0.2 }
+        end
+
+        local function adaptKey(len, cat, w)
+            local a = st.adapt[len .. ":" .. cat] or { stats = {}, p0 = 0.2 }
+            local sum = 0
+            for index = 1, #w do
+                local entry = a.stats[index .. w:sub(index, index)]
+                local k, n = entry and entry.k or 0, entry and entry.n or 0
+                sum += (k + 10 * a.p0) / (n + 10)
+            end
+            return sum / #w + 0.0001 * psych(w)
+        end
+
+        -- ===== pembuat kandidat =====
+        local function isLarge(len, cat) return len == 4 and (cat == "letters" or cat == "mixed") end
+
+        local function pickChar(set)
+            local index = math.random(1, #set)
+            return set:sub(index, index)
+        end
+
+        local function randomCand(len, cat)
+            local out = {}
+            for index = 1, len do
+                if cat == "vokal" then out[index] = pickChar(index % 2 == 1 and CONSSTR or VOW)
+                elseif cat == "read" then out[index] = pickChar(index % 2 == 1 and CONSSTR or DIG)
+                elseif cat == "digits" then out[index] = pickChar(DIG)
+                elseif cat == "letters" then out[index] = pickChar(LET)
+                else out[index] = pickChar(ALL) end
+            end
+            return table.concat(out)
+        end
+
+        local function cands(len, cat)
+            local key = len .. ":" .. cat
+            if candCache[key] then return candCache[key] end
+            local out, count = {}, 0
+            local function add(w)
+                if catOf(w) == cat then out[#out + 1] = w end
+                count += 1
+                if count % 6000 == 0 then task.wait() end
+            end
+            if len == 3 then
+                for i = 1, #ALL do
+                    local a = ALL:sub(i, i)
+                    for j = 1, #ALL do
+                        local b = ALL:sub(j, j)
+                        for k = 1, #ALL do add(a .. b .. ALL:sub(k, k)) end
+                    end
+                end
+            else
+                local sets = {
+                    digits = { DIG, DIG, DIG, DIG },
+                    vokal = { CONSSTR, VOW, CONSSTR, VOW },
+                    read = { CONSSTR, DIG, CONSSTR, DIG },
+                }
+                local set = sets[cat]
+                if set then
+                    for i = 1, #set[1] do
+                        for j = 1, #set[2] do
+                            for k = 1, #set[3] do
+                                for l = 1, #set[4] do
+                                    add(set[1]:sub(i, i) .. set[2]:sub(j, j) .. set[3]:sub(k, k) .. set[4]:sub(l, l))
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            candCache[key] = out
+            return out
+        end
+
+        local function ensurePools(len, cat)
+            local key = len .. ":" .. cat
+            if pools[key] then return end
+            local done = resOf(len, cat)
+            local listA, listB = {}, {}
+            for _, w in ipairs(cands(len, cat)) do
+                if not done[w] then
+                    if groupOf(w) == "A" then listA[#listA + 1] = w else listB[#listB + 1] = w end
+                end
+            end
+            for _, list in ipairs({ listA, listB }) do
+                for index = #list, 2, -1 do
+                    local other = math.random(1, index)
+                    list[index], list[other] = list[other], list[index]
+                end
+            end
+            pools[key] = { A = listA, B = listB }
+        end
+
+        -- pilih nama terbaik dari sampel acak (murah, tidak perlu mengurutkan ribuan nama)
+        local function sample(len, cat, group)
+            local key = len .. ":" .. cat
+            local done = resOf(len, cat)
+            local best, bestKey
+            if isLarge(len, cat) then
+                local got, tries = 0, 0
+                while got < WANT and tries < 30000 do
+                    tries += 1
+                    local w = randomCand(len, cat)
+                    if catOf(w) == cat and groupOf(w) == group and not done[w] and not st.skipped[w] then
+                        got += 1
+                        local score = adaptKey(len, cat, w)
+                        if not bestKey or score > bestKey then best, bestKey = w, score end
+                    end
+                end
+                return best
+            end
+            local pool = pools[key] and pools[key][group]
+            if not pool then return nil end
+            if #pool <= WANT then
+                local index = 1
+                while index <= #pool do
+                    local w = pool[index]
+                    if done[w] or st.skipped[w] then
+                        pool[index] = pool[#pool]
+                        pool[#pool] = nil
+                    else
+                        local score = adaptKey(len, cat, w)
+                        if not bestKey or score > bestKey then best, bestKey = w, score end
+                        index += 1
+                    end
+                end
+            else
+                local checked, guard = 0, 0
+                while #pool > 0 and checked < WANT and guard < WANT * 4 do
+                    guard += 1
+                    local index = math.random(1, #pool)
+                    local w = pool[index]
+                    if done[w] or st.skipped[w] then
+                        pool[index] = pool[#pool]
+                        pool[#pool] = nil
+                    else
+                        checked += 1
+                        local score = adaptKey(len, cat, w)
+                        if not bestKey or score > bestKey then best, bestKey = w, score end
+                    end
+                end
+            end
+            return best
+        end
+
+        local function gstate(len, cat)
+            local key = len .. ":" .. cat
+            local s = st.grp[key]
+            if not s then
+                s = { g = "A", left = 0, outs = {}, kcount = 0, need = math.random(2, 3) }
+                st.grp[key] = s
+            end
+            return s
+        end
+        local function otherGroup(g) return g == "A" and "B" or "A" end
+        local function enterGroup(s, g)
+            s.g, s.kcount, s.need = g, 0, math.random(2, 3)
+        end
+
+        -- ===== API untuk World Finder =====
+        function Rec.queue(limit)
+            local out = {}
+            for index = 1, limit do out[index] = "PENCATAT" .. index end
+            return out
+        end
+
+        function Rec.next()
+            local len, cat = st.len, st.cat
+            local key = len .. ":" .. cat
+            if st.dirty[key] or not st.adapt[key] then
+                refreshAdapt(len, cat)
+                st.dirty[key] = false
+            end
+            if not isLarge(len, cat) then ensurePools(len, cat) end
+            local s = gstate(len, cat)
+            if s.left <= 0 then
+                if #s.outs > 0 then
+                    local allTaken = true
+                    for _, outcome in ipairs(s.outs) do
+                        if outcome ~= "t" then allTaken = false break end
+                    end
+                    if allTaken then enterGroup(s, otherGroup(s.g)) end
+                end
+                s.outs = {}
+                s.left = math.random(2, 5)
+            end
+            local w = sample(len, cat, s.g)
+            if not w then
+                w = sample(len, cat, otherGroup(s.g))
+                if w then enterGroup(s, otherGroup(s.g)) end
+            end
+            if w then s.left -= 1 end
+            return w
+        end
+
+        function Rec.pick(index, queue)
+            local current = queue[index]
+            local ours = false
+            for _, entry in ipairs(queue) do
+                if type(entry) == "string" and entry:match(PLACEHOLDER) then ours = true break end
+            end
+            if not ours then return current end
+            if type(current) == "string" and not current:match(PLACEHOLDER) then
+                local cat = catOf(current)
+                if cat == st.cat and #current == st.len and not resOf(#current, cat)[current] then return current end
+            end
+            return Rec.next()
+        end
+
+        function Rec.record(name, kind)
+            local cat = catOf(name)
+            if not cat then return end
+            local len = #name
+            local mark = (kind == "unlocked" and "k") or (kind == "locked" and "t") or nil
+            if not mark then
+                st.skipped[name] = true
+                return
+            end
+            resOf(len, cat)[name] = mark
+            st.dirty[len .. ":" .. cat] = true
+            if len == st.len and cat == st.cat then
+                local s = gstate(len, cat)
+                s.outs[#s.outs + 1] = mark
+                if mark == "k" and s.g == "B" then
+                    s.kcount += 1
+                    if s.kcount >= s.need then
+                        enterGroup(s, "A")
+                        s.left, s.outs = 0, {}
+                    end
+                end
+            end
+            save()
+        end
+
+        -- ===== API untuk menu =====
+        function Rec.getLen() return st.len end
+        function Rec.setLen(len)
+            if len == 3 or len == 4 then st.len = len save() end
+        end
+        function Rec.catLabels()
+            local out = {}
+            for _, cat in ipairs(ORDER) do out[#out + 1] = LABEL[cat] end
+            return out
+        end
+        function Rec.catLabel() return LABEL[st.cat] end
+        function Rec.setCatByLabel(label)
+            for _, cat in ipairs(ORDER) do
+                if LABEL[cat] == label then st.cat = cat save() return end
+            end
+        end
+
+        local function fmt(number)
+            local text = tostring(math.floor(number))
+            text = (text:reverse():gsub("(%d%d%d)", "%1.")):reverse()
+            if text:sub(1, 1) == "." then text = text:sub(2) end
+            return text
+        end
+
+        local function emptyNames()
+            local list = {}
+            for w, value in pairs(resOf(st.len, st.cat)) do
+                if value == "k" then list[#list + 1] = w end
+            end
+            table.sort(list)
+            return list
+        end
+
+        function Rec.emptyList() return table.concat(emptyNames(), ", ") end
+
+        function Rec.statsText()
+            local len, cat = st.len, st.cat
+            local kosong, diambil = 0, 0
+            for _, value in pairs(resOf(len, cat)) do
+                if value == "k" then kosong += 1 elseif value == "t" then diambil += 1 end
+            end
+            local total = TOTAL[len][cat]
+            local s = gstate(len, cat)
+            local names = emptyNames()
+            local shown = {}
+            for index = 1, math.min(12, #names) do shown[index] = names[index] end
+            local lines = {
+                ("Aktif    : %d karakter | %s"):format(len, LABEL[cat]),
+                ("Sudah dicek: %s | Kosong %s | Diambil %s"):format(fmt(kosong + diambil), fmt(kosong), fmt(diambil)),
+                ("Sisa     : %s dari %s"):format(fmt(math.max(0, total - kosong - diambil)), fmt(total)),
+                ("Kelompok : %s"):format(s.g),
+                "Kosong   : " .. (#shown > 0 and table.concat(shown, ", ") .. (#names > 12 and (" +" .. (#names - 12) .. " lagi") or "") or "-"),
+            }
+            return table.concat(lines, "\n")
+        end
+
+        function Rec.resetCat()
+            st.res[st.len] = st.res[st.len] or {}
+            st.res[st.len][st.cat] = {}
+            local key = st.len .. ":" .. st.cat
+            pools[key], st.grp[key], st.adapt[key], st.dirty[key] = nil, nil, nil, nil
+            st.skipped = {}
+            save()
+        end
+        return Rec
+    end)()
+]==]
+
+local REC_UI = [==[
+    do
+        local Rec = WorldFinder.Rec
+        if Rec then
+            safe(function()
+                controls:Dropdown({
+                    Title = "Panjang nama (Pencatat)",
+                    Desc = "Dipakai saat Jenis nama = Pencatat",
+                    Values = { "3 karakter", "4 karakter" },
+                    Value = Rec.getLen() == 4 and "4 karakter" or "3 karakter",
+                    Callback = function(value)
+                        if type(value) == "table" then value = value[1] end
+                        Rec.setLen(value == "4 karakter" and 4 or 3)
+                    end,
+                })
+            end)
+            safe(function()
+                controls:Dropdown({
+                    Title = "Kategori (Pencatat)",
+                    Desc = "Huruf, Angka, Huruf dan Angka, Huruf Vokal, atau Angka Read",
+                    Values = Rec.catLabels(),
+                    Value = Rec.catLabel(),
+                    Callback = function(value)
+                        if type(value) == "table" then value = value[1] end
+                        Rec.setCatByLabel(value)
+                    end,
+                })
+            end)
+            safe(function()
+                UI.RecStatus = controls:Paragraph({ Title = "Catatan Pencatat", Desc = Rec.statsText() })
+            end)
+            safe(function()
+                controls:Button({
+                    Title = "Salin daftar kosong",
+                    Desc = "Salin nama world kosong yang sudah tercatat di kategori ini",
+                    Callback = function()
+                        local list = Rec.emptyList()
+                        if list == "" then notify("Pencatat", "Belum ada world kosong tercatat", 3) return end
+                        if type(setclipboard) ~= "function" then notify("Pencatat", "Executor tidak mendukung clipboard", 3) return end
+                        local ok = pcall(setclipboard, list)
+                        notify("Pencatat", ok and "Daftar kosong sudah disalin" or "Gagal menyalin", 3)
+                    end,
+                })
+            end)
+            safe(function()
+                local armedAt = 0
+                controls:Button({
+                    Title = "Reset catatan kategori ini",
+                    Desc = "Ketuk dua kali dalam 4 detik untuk menghapus catatan kategori yang aktif",
+                    Callback = function()
+                        if os.clock() - armedAt < 4 then
+                            armedAt = 0
+                            Rec.resetCat()
+                            notify("Pencatat", "Catatan kategori ini direset", 3)
+                        else
+                            armedAt = os.clock()
+                            notify("Pencatat", "Ketuk sekali lagi untuk menghapus", 3)
+                        end
+                    end,
+                })
+            end)
+            task.spawn(function()
+                local last
+                while alive() do
+                    local text = Rec.statsText()
+                    if UI.RecStatus and text ~= last then
+                        last = text
+                        UI.later("recStatus", function() UI.RecStatus:SetDesc(text) end)
+                    end
+                    task.wait(2)
+                end
+            end)
+        end
+    end
+]==]
+
+local PICK_NEW = [==[local name = queue[index]
+                    if WorldFinder.Rec then
+                        local picked = WorldFinder.Rec.pick(index, queue)
+                        if picked == nil then
+                            WorldFinder.log("Pencatat: semua nama kategori ini sudah dicek")
+                            break
+                        end
+                        name = picked
+                        queue[index] = name
+                    end]==]
+
 local function rename(s)
     s = s:gsub("gentasaja", "\1KEEP\1")
     s = s:gsub("[Gg][Ee][Nn][Tt][Aa]%s?[Hh]4[Xx]", "Lest")
@@ -439,6 +977,36 @@ local function buildSource(src)
     swap("status-judul", "WindUI = downloadWindUI()()", UIBLOCK)
     local printLine = 'print("[GentaH4x] Memuat build " .. Session.Build)'
     swap("cache-windui", printLine, CACHE .. printLine)
+
+    -- Pencatat + World Finder (semua jangkar harus ada, kalau tidak dilewati)
+    local MODES_OLD = 'local modes = { "Campuran", "3 Huruf", "4 Huruf", "Kata Indonesia", "English Words", "BUY + Item", "Daftar sendiri" }'
+    local MODES_NEW = 'local modes = { "Campuran", "3 Huruf", "4 Huruf", "Kata Indonesia", "English Words", "BUY + Item", "Daftar sendiri", "Pencatat" }'
+    local MODE_ASSIGN = "WorldFinder.Modes = modes"
+    local LIMIT_OLD = "limit = math.clamp(math.floor(tonumber(limit) or 100), 1, 500)"
+    local PICK_OLD = "local name = queue[index]"
+    local RECORD_OLD = 'if result.kind == "unlocked" then notify("World Finder", message, 10) end'
+    local UI_OLD = '    safe(function()\n        controls:Input({\n            Title = "Daftar world",'
+    local allThere = true
+    for _, text in ipairs({ MODES_OLD, MODE_ASSIGN, LIMIT_OLD, PICK_OLD, RECORD_OLD, UI_OLD }) do
+        if not out:find(text, 1, true) then allThere = false end
+    end
+    if allThere then
+        swap("pencatat-mode", MODES_OLD, MODES_NEW)
+        swap("pencatat-modul", MODE_ASSIGN, MODE_ASSIGN .. "\n" .. REC_LOGIC)
+        swap("pencatat-antrean", LIMIT_OLD, LIMIT_OLD .. '\n        if mode == "Pencatat" and WorldFinder.Rec then return WorldFinder.Rec.queue(limit) end')
+        swap("pencatat-pilih", PICK_OLD, PICK_NEW)
+        swap("pencatat-catat", RECORD_OLD, RECORD_OLD .. "\n        if WorldFinder.Rec then pcall(WorldFinder.Rec.record, name, result.kind) end")
+        swap("pencatat-menu", UI_OLD, REC_UI .. "\n" .. UI_OLD)
+    else
+        skipped[#skipped + 1] = "pencatat (jangkar tidak cocok)"
+    end
+
+    -- Jangan muat script milik orang lain setelah teleport / rejoin: pakai boot sendiri
+    local upstream = "https://raw.githubusercontent.com/ZennJxD/GentaH4x/refs/heads/main/GentaH4x"
+    swap("antrean-finder", 'loadstring(game:HttpGet("' .. upstream .. '"))()', "-- dilanjutkan oleh boot Lest (antrean sendiri)")
+    swap("url-rejoin", 'ScriptUrl = "' .. upstream .. '",', 'ScriptUrl = "' .. BASE .. BOOT_FILE .. '",')
+    local reconnect = 'Config.add("Reconnect", Rejoin, { "On", "World", "Server", "DelaySec", "ScriptUrl", "Keep", "Target" })'
+    swap("url-rejoin-paksa", reconnect, reconnect .. '\nif type(Rejoin.ScriptUrl) ~= "string" or Rejoin.ScriptUrl == "" or Rejoin.ScriptUrl:find("ZennJxD", 1, true) then Rejoin.ScriptUrl = "' .. BASE .. BOOT_FILE .. '" end')
     return out, applied, skipped
 end
 
