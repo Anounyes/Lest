@@ -1,4 +1,4 @@
--- LestHub boot v6 (tes: Pencatat saja + pukul baru + diagnosa)
+-- LestHub boot v7 (tes: perekam aksi + Finder tanpa keluar)
 local OWNER, REPO, BRANCH = "Anounyes", "lest", "main"
 local MAIN_FILE, BOOT_FILE = "gentah4x.lua.txt", "lest-test.lua.txt"
 local LITE = true
@@ -972,47 +972,104 @@ local REC_UI = [==[
 
 local NETINSTALL = [==[
     pcall(function()
-        if not (NetOk and type(Net) == "table" and type(Net.punch) == "table" and type(Net.punch.send) == "function") then return end
-        local original = Net.punch.send
-        local function remember(...)
+        if not (NetOk and type(Net) == "table") then return end
+        local record = { order = {}, info = {} }
+        Session.NetLog = record
+        local function brief(value)
+            local kind = type(value)
+            if kind == "table" then
+                local parts = {}
+                for key, inner in pairs(value) do
+                    local innerKind = type(inner)
+                    if (innerKind == "number" or innerKind == "string" or innerKind == "boolean") and #parts < 8 then
+                        parts[#parts + 1] = tostring(key) .. "=" .. tostring(inner):sub(1, 14)
+                    end
+                end
+                table.sort(parts)
+                return "{" .. table.concat(parts, ",") .. "}"
+            elseif kind == "number" or kind == "string" or kind == "boolean" then
+                return tostring(value):sub(1, 18)
+            end
+            return kind
+        end
+        local function log(tag, ...)
             if Session.PunchMine then return end
-            local first = ...
-            local info = { at = os.clock(), n = select("#", ...), kind = type(first) }
-            if type(first) == "table" then
-                local copy = {}
-                for key, value in pairs(first) do
-                    local valueKind = type(value)
-                    if valueKind == "number" or valueKind == "string" or valueKind == "boolean" then copy[key] = value end
-                end
-                info.packet = copy
+            local entry = record.info[tag]
+            if not entry then
+                entry = { count = 0 }
+                record.info[tag] = entry
+                record.order[#record.order + 1] = tag
             end
-            Session.PunchSeen = info
+            entry.count += 1
+            entry.at = os.clock()
+            local shown = {}
+            for index = 1, math.min(select("#", ...), 4) do
+                shown[index] = brief((select(index, ...)))
+            end
+            entry.args = table.concat(shown, " ")
+            if tag == "punch" then
+                local first = ...
+                local info = { at = os.clock(), n = select("#", ...), kind = type(first) }
+                if type(first) == "table" then
+                    local copy = {}
+                    for key, inner in pairs(first) do
+                        local innerKind = type(inner)
+                        if innerKind == "number" or innerKind == "string" or innerKind == "boolean" then copy[key] = inner end
+                    end
+                    info.packet = copy
+                end
+                Session.PunchSeen = info
+            end
         end
-        Session.PunchOld = original
-        local mode = nil
-        if type(hookfunction) == "function" then
-            local old
-            local okHook = pcall(function()
-                old = hookfunction(original, function(...)
-                    pcall(remember, ...)
-                    return old(...)
+        -- pasang penyadap pada satu fungsi: kembalikan fungsi aslinya (tanpa penyadap)
+        local function hookFn(holder, key, tagFor)
+            local original = rawget(holder, key)
+            if type(original) ~= "function" then return nil, nil end
+            local function wrapperFor(callOriginal)
+                return function(...)
+                    local okTag, tag = pcall(tagFor, ...)
+                    if okTag then pcall(log, tag, ...) end
+                    return callOriginal(...)
+                end
+            end
+            if type(hookfunction) == "function" then
+                local old
+                local ok = pcall(function()
+                    old = hookfunction(original, wrapperFor(function(...) return old(...) end))
                 end)
-            end)
-            if okHook and type(old) == "function" then
-                Session.PunchOld = old
-                mode = "hookfunction"
+                if ok and type(old) == "function" then return old, "hookfunction" end
+            end
+            local ok2 = pcall(function() holder[key] = wrapperFor(original) end)
+            if ok2 then return original, "field" end
+            return nil, nil
+        end
+        Session.hookFn = hookFn
+        Session.hooked = Session.hooked or {}
+        local function once(holder, key, tagFor)
+            local id = tostring(holder) .. "." .. tostring(key)
+            if Session.hooked[id] then return nil, nil end
+            local old, how = hookFn(holder, key, tagFor)
+            if old then Session.hooked[id] = how end
+            return old, how
+        end
+        local count = 0
+        for key, channel in pairs(Net) do
+            if type(key) == "string" and type(channel) == "table" and type(rawget(channel, "send")) == "function" then
+                local tag = key
+                local old, how = once(channel, "send", function() return tag end)
+                if old then count += 1 end
+                if key == "punch" and old then
+                    Session.PunchOld, Session.PunchHook = old, how
+                end
             end
         end
-        if not mode then
-            local okSet = pcall(function()
-                Net.punch.send = function(...)
-                    pcall(remember, ...)
-                    return original(...)
-                end
-            end)
-            if okSet then mode = "field" end
+        if type(rawget(Net, "call")) == "function" then
+            once(Net, "call", function(first) return "call:" .. tostring(first) end)
         end
-        Session.PunchHook = mode
+        Session.HookCount = count
+        if not Session.PunchOld and type(Net.punch) == "table" and type(rawget(Net.punch, "send")) == "function" then
+            Session.PunchOld = rawget(Net.punch, "send")
+        end
         -- Pukul lewat jaringan game: dipakai kalau fungsi pukul game tidak ketemu
         Session.NetPunch = function(x, y)
             local send = Session.PunchOld
@@ -1062,85 +1119,149 @@ Session.diagnose = function()
         end
         table.sort(list)
         if #list == 0 then return "-" end
-        return table.concat(list, " ", 1, math.min(#list, limit or 24))
+        local text = table.concat(list, " ", 1, math.min(#list, limit or 40))
+        if #list > (limit or 40) then text = text .. " +" .. (#list - (limit or 40)) end
+        return text
     end
     add(("build=%s place=%s ver=%s"):format(tostring(Session.Build), tostring(game.PlaceId), tostring(game.PlaceVersion)))
-    add(("net=%s netpunch=%s hook=%s dilihat=%s"):format(tostring(NetOk and type(Net) == "table"),
-        tostring(Session.NetPunch ~= nil), tostring(Session.PunchHook), tostring(Session.PunchSeen ~= nil)))
-    if NetOk and type(Net) == "table" then
-        add("Net> " .. names(Net, 30))
-        add("Net.punch> " .. names(Net.punch, 12))
-    end
-    local seen = Session.PunchSeen
-    if seen then
-        local parts = {}
-        if seen.packet then
-            for key, value in pairs(seen.packet) do parts[#parts + 1] = tostring(key) .. "=" .. tostring(value) end
-            table.sort(parts)
+    add(("net=%s netpunch=%s hook=%s saluran=%s dilihat=%s"):format(tostring(NetOk and type(Net) == "table"),
+        tostring(Session.NetPunch ~= nil), tostring(Session.PunchHook), tostring(Session.HookCount), tostring(Session.PunchSeen ~= nil)))
+    add(("ref world=%s inv=%s settile=%s pukul=%s pohon=%s anim=%s menu=%s"):format(tostring(Refs.World ~= nil), tostring(Refs.Inv ~= nil),
+        tostring(Refs.SetTile ~= nil), tostring(Refs.Punch ~= nil), tostring(Refs.Trees ~= nil), tostring(Anim.fn ~= nil), tostring(Refs.Menu ~= nil)))
+
+    -- rekaman aksi pemain: paket jaringan yang terkirim sejak script jalan
+    local record = Session.NetLog
+    if record and #record.order > 0 then
+        add("=== paket terkirim (nama x jumlah argumen) ===")
+        for _, tag in ipairs(record.order) do
+            local entry = record.info[tag]
+            add(("%s x%d %s"):format(tag, entry.count, entry.args or ""))
         end
-        add(("pukulan game: jenis=%s jumlah=%s %s"):format(tostring(seen.kind), tostring(seen.n), table.concat(parts, ",")))
     else
-        add("pukulan game: belum terlihat (pukul 1 block manual lalu ulangi)")
+        add("=== belum ada paket terekam (lakukan aksi di game lalu ulangi) ===")
     end
-    add(("ref world=%s inv=%s settile=%s pukul=%s pohon=%s anim=%s"):format(tostring(Refs.World ~= nil), tostring(Refs.Inv ~= nil),
-        tostring(Refs.SetTile ~= nil), tostring(Refs.Punch ~= nil), tostring(Refs.Trees ~= nil), tostring(Anim.fn ~= nil)))
+
+    if NetOk and type(Net) == "table" then
+        add("Net> " .. names(Net, 80))
+        add("Net.punch> " .. names(Net.punch, 12))
+        add("CALLS> " .. names(Net.CALLS, 80))
+        add("EVENTS> " .. names(Net.EVENTS, 80))
+    end
+    add("menu> " .. names(Refs.Menu, 60))
+    add("world fn> " .. (function()
+        local world = Refs.World
+        if type(world) ~= "table" then return "-" end
+        local list = {}
+        for key, value in pairs(world) do
+            if type(key) == "string" and type(value) == "function" then list[#list + 1] = key end
+        end
+        table.sort(list)
+        return table.concat(list, " ", 1, math.min(#list, 160))
+    end)())
+
+    -- fungsi milik game yang memuat teks vending / crack (fungsi script ini dilewati)
     if type(getgc) == "function" and type(getconsts) == "function" then
         local okGc, objects = pcall(getgc, true)
         if okGc and type(objects) == "table" then
             local found, scanned = 0, 0
             for _, value in pairs(objects) do
                 scanned += 1
-                if type(value) == "function" and found < 5 then
-                    local okc, consts = pcall(getconsts, value)
-                    if okc and type(consts) == "table" then
-                        local hit = false
-                        for _, c in pairs(consts) do
-                            if type(c) == "string" then
-                                local low = c:lower()
-                                if low:find("vending", 1, true) or low:find("crack", 1, true) then hit = true break end
-                            end
-                        end
-                        if hit then
-                            local strings = {}
+                if type(value) == "function" and found < 6 then
+                    local mine = false
+                    if type(isexecutorclosure) == "function" then
+                        local okm, yes = pcall(isexecutorclosure, value)
+                        mine = okm and yes or false
+                    end
+                    if not mine then
+                        local oks, source = pcall(function() return debug.info(value, "s") end)
+                        if oks and type(source) == "string" and source:find("lest-main", 1, true) then mine = true end
+                    end
+                    if not mine then
+                        local okc, consts = pcall(getconsts, value)
+                        if okc and type(consts) == "table" then
+                            local hit = false
                             for _, c in pairs(consts) do
-                                if type(c) == "string" and #strings < 14 then strings[#strings + 1] = c:sub(1, 22) end
+                                if type(c) == "string" then
+                                    local low = c:lower()
+                                    if low:find("vending", 1, true) or low:find("crack", 1, true) then hit = true break end
+                                end
                             end
-                            found += 1
-                            add("fn" .. found .. "> " .. table.concat(strings, " | "))
+                            if hit then
+                                local strings = {}
+                                for _, c in pairs(consts) do
+                                    if type(c) == "string" and #strings < 16 then strings[#strings + 1] = c:sub(1, 22) end
+                                end
+                                found += 1
+                                add("fn" .. found .. "> " .. table.concat(strings, " | "))
+                            end
                         end
                     end
                 end
                 if scanned % 2500 == 0 then task.wait() end
             end
-            if found == 0 then add("fn> tidak ada fungsi dengan teks vending/crack") end
+            if found == 0 then add("fn> tidak ada fungsi game dengan teks vending/crack") end
         end
-    end
-    local world = Refs.World
-    if type(world) == "table" then
-        local list = {}
-        for key, value in pairs(world) do
-            if type(key) == "string" and type(value) == "function" then list[#list + 1] = key end
-        end
-        table.sort(list)
-        add("world fn> " .. table.concat(list, " ", 1, math.min(#list, 30)))
     end
     return table.concat(lines, "\n")
+end
+
+-- pasang penyadap tambahan pada World dan Menu (dipanggil dari tombol diagnosa)
+Session.hookMore = function()
+    local hook = Session.hookFn
+    Session.hooked = Session.hooked or {}
+    if type(hook) ~= "function" then return end
+    local function once(holder, key, tagFor)
+        local id = tostring(holder) .. "." .. tostring(key)
+        if Session.hooked[id] then return end
+        local old, how = hook(holder, key, tagFor)
+        if old then Session.hooked[id] = how end
+    end
+    local world = Refs.World
+    if type(world) == "table" and type(rawget(world, "call")) == "function" then
+        once(world, "call", function(first) return "world.call:" .. tostring(first) end)
+    end
+    local menu = Refs.Menu
+    if type(menu) == "table" then
+        for key, value in pairs(menu) do
+            if type(key) == "string" and type(value) == "function" then
+                local low = key:lower()
+                if low:find("open", 1, true) or low:find("enter", 1, true) or low:find("exit", 1, true)
+                    or low:find("leave", 1, true) or low:find("close", 1, true) or low:find("picker", 1, true) or low:find("world", 1, true) then
+                    once(menu, key, function() return "menu." .. key end)
+                end
+            end
+        end
+    end
 end
 
 ]==]
 
 local DIAG_UI = [==[
 safe(function()
-    UI.DiagInfo = Box.ConnMain:Paragraph({ Title = "Diagnosa pukul", Desc = "Pukul satu block manual, lalu ketuk Jalankan diagnosa dan screenshot hasilnya" })
+    UI.DiagInfo = Box.ConnMain:Paragraph({ Title = "Diagnosa", Desc = "1) Ketuk Pasang perekam. 2) Di game: pukul block, tekan Exit World, masuk world lain. 3) Ketuk Jalankan diagnosa dan screenshot (gulir untuk semua bagian)" })
+end)
+safe(function()
+    Box.ConnMain:Button({
+        Title = "Pasang perekam",
+        Desc = "Mulai merekam paket yang dikirim game saat kamu beraksi",
+        Callback = function()
+            pcall(Session.hookMore)
+            notify("Diagnosa", "Perekam terpasang. Lakukan aksi di game", 4)
+        end,
+    })
 end)
 safe(function()
     Box.ConnMain:Button({
         Title = "Jalankan diagnosa",
-        Desc = "Membaca fungsi pukul, paket jaringan, dan data world",
+        Desc = "Membaca paket terekam, fungsi game, dan data world",
         Callback = function()
             task.spawn(function()
+                pcall(Session.hookMore)
                 local ok, text = pcall(Session.diagnose)
                 text = ok and text or ("diagnosa gagal: " .. tostring(text))
+                local okAuto, errAuto = pcall(checkAutoStart)
+                text = text .. "\ncek-auto=" .. tostring(okAuto and (errAuto or "lolos") or ("error " .. tostring(errAuto)))
+                    .. " isDown=" .. tostring(OrigIsDown ~= nil)
                 pcall(function() UI.DiagInfo:SetDesc(text) end)
                 if type(setclipboard) == "function" then pcall(setclipboard, text) end
                 pcall(function()
@@ -1171,6 +1292,45 @@ local function isPunchFn(fn)
     end
     return hasVend and (hasMark or hasHint)
 end
+
+]==]
+
+local LEAVE_NEW = [==[
+    local function leaveWorld()
+        local m = Refs.Menu
+        if m and type(rawget(m, "openPicker")) == "function" and pcall(m.openPicker) then
+            return true
+        end
+        local w = Refs.World
+        if w and type(rawget(w, "call")) == "function" then
+            local ok, res = pcall(w.call, "LeaveWorld")
+            if ok and res ~= false then return true end
+        end
+        -- cadangan: cari fungsi keluar world di Menu, World, dan daftar CALLS game
+        local function wanted(name)
+            local low = tostring(name):lower()
+            return low:find("leave", 1, true) ~= nil or low:find("exitworld", 1, true) ~= nil or low == "exit"
+        end
+        for _, holder in ipairs({ m or false, w or false }) do
+            if holder then
+                for key, value in pairs(holder) do
+                    if type(key) == "string" and type(value) == "function" and wanted(key) then
+                        local ok, res = pcall(value)
+                        if ok and res ~= false then return true end
+                    end
+                end
+            end
+        end
+        if w and type(rawget(w, "call")) == "function" and NetOk and type(Net) == "table" and type(Net.CALLS) == "table" then
+            for key in pairs(Net.CALLS) do
+                if type(key) == "string" and wanted(key) then
+                    local ok, res = pcall(w.call, key)
+                    if ok and res ~= false then return true end
+                end
+            end
+        end
+        return false
+    end
 
 ]==]
 
@@ -1279,6 +1439,11 @@ local function buildSource(src)
     swap("diagnosa-kode", "local function refsText()\n", DIAG_CODE .. "local function refsText()\n")
     swap("diagnosa-menu", 'safe(function()\n    UI.ConfigStatus = Box.ConnCfg:Paragraph({ Title = "Status", Desc = Config.Status })\nend)\n',
         DIAG_UI .. 'safe(function()\n    UI.ConfigStatus = Box.ConnCfg:Paragraph({ Title = "Status", Desc = Config.Status })\nend)\n')
+
+    -- Finder: perbaiki keluar world, dan tetap coba masuk langsung kalau keluar gagal
+    swapSpan("finder-keluar", "    local function leaveWorld()", "    -- Masuk world lewat menu game", LEAVE_NEW)
+    swap("finder-tanpa-keluar", 'if not Guard.leaveWorld() then return false, "Gagal keluar dari world sekarang" end',
+        'if not Guard.leaveWorld() then WorldFinder.log("Keluar world tidak bisa, mencoba masuk langsung") end')
 
     -- Jangan muat script milik orang lain setelah teleport / rejoin: pakai boot sendiri
     local upstream = "https://raw.githubusercontent.com/ZennJxD/GentaH4x/refs/heads/main/GentaH4x"
