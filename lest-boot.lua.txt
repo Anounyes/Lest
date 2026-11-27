@@ -1,15 +1,9 @@
--- LestHub boot v4
+-- LestHub boot v3
 local OWNER, REPO, BRANCH = "Anounyes", "lest", "main"
 local MAIN_FILE, BOOT_FILE = "gentah4x.lua.txt", "lest-boot.lua.txt"
 local LITE = true
 local LOGO_TEXT, LOGO_COLOR = "L", "FF5FA8"
-local THEME = "sein" -- "sein" (cincin hijau) atau "pink" (cincin pink-ungu)
-
-local THEMES = {
-    sein = { rimA = "568040", rimB = "74C658", rimC = "8AD66E", tile = "2E2925", inner = "1C1815", innerRim = "4A423B" },
-    pink = { rimA = "B14DFF", rimB = "FF5FA8", rimC = "FF9AC8", tile = "241631", inner = "170E21", innerRim = "4A2C66" },
-}
-local P = THEMES[THEME] or THEMES.sein
+local TILE_COLOR, RIM_A, RIM_B, RIM_C = "2E2925", "568040", "74C658", "8AD66E"
 
 local G = (getgenv and getgenv()) or _G
 local BASE = "https://raw.githubusercontent.com/" .. OWNER .. "/" .. REPO .. "/refs/heads/" .. BRANCH .. "/"
@@ -61,8 +55,7 @@ local function makeButton()
     if G.__LestBtn then pcall(function() G.__LestBtn:Destroy() end) end
     local UIS = game:GetService("UserInputService")
     local HttpService = game:GetService("HttpService")
-    local TweenService = game:GetService("TweenService")
-    local SIZE, POS_FILE = 54, "LestOpus/button.json"
+    local SIZE, POS_FILE = 52, "LestOpus/button.json"
 
     local function viewport()
         local cam = workspace.CurrentCamera
@@ -106,104 +99,60 @@ local function makeButton()
     local saved = loadPos()
     local px = saved and math.clamp(saved.x * vw, 0, vw - SIZE) or 14
     local py = saved and math.clamp(saved.y * vh, 0, vh - SIZE) or (vh / 2 - SIZE / 2)
-
-    -- Lencana bulat: dasar + cincin gradasi berputar
     local btn = Instance.new("TextButton")
     btn.Size, btn.Position = UDim2.fromOffset(SIZE, SIZE), UDim2.fromOffset(px, py)
-    btn.BackgroundColor3, btn.AutoButtonColor, btn.Text = hex(P.tile), false, ""
+    btn.BackgroundColor3, btn.AutoButtonColor, btn.Text = hex(TILE_COLOR), false, ""
     btn.Parent = gui
 
-    local scale = Instance.new("UIScale")
-    scale.Parent = btn
-
     pcall(function()
-        local round = Instance.new("UICorner")
-        round.CornerRadius = UDim.new(1, 0)
-        round.Parent = btn
-
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 14)
+        corner.Parent = btn
+        local shade = Instance.new("UIGradient")
+        shade.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(0.6, 0.6, 0.6))
+        shade.Rotation = 90
+        shade.Parent = btn
         local stroke = Instance.new("UIStroke")
-        stroke.Color, stroke.Thickness = Color3.new(1, 1, 1), 2.5
+        stroke.Color, stroke.Thickness = Color3.new(1, 1, 1), 2
         stroke.Parent = btn
         local rim = Instance.new("UIGradient")
         rim.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, hex(P.rimA)),
-            ColorSequenceKeypoint.new(0.5, hex(P.rimB)),
-            ColorSequenceKeypoint.new(1, hex(P.rimC)),
+            ColorSequenceKeypoint.new(0, hex(RIM_A)),
+            ColorSequenceKeypoint.new(0.5, hex(RIM_B)),
+            ColorSequenceKeypoint.new(1, hex(RIM_C)),
         })
         rim.Parent = stroke
         if G.__LestRimTween then pcall(function() G.__LestRimTween:Cancel() end) end
-        G.__LestRimTween = TweenService:Create(rim,
+        G.__LestRimTween = game:GetService("TweenService"):Create(rim,
             TweenInfo.new(2.5, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1), { Rotation = 360 })
         G.__LestRimTween:Play()
-
-        -- Piringan dalam yang lebih gelap
-        local inner = Instance.new("Frame")
-        inner.Size, inner.Position = UDim2.new(1, -10, 1, -10), UDim2.fromOffset(5, 5)
-        inner.BackgroundColor3, inner.BorderSizePixel = hex(P.inner), 0
-        inner.Parent = btn
-        local innerRound = Instance.new("UICorner")
-        innerRound.CornerRadius = UDim.new(1, 0)
-        innerRound.Parent = inner
-        local innerStroke = Instance.new("UIStroke")
-        innerStroke.Color, innerStroke.Thickness = hex(P.innerRim), 1
-        innerStroke.Parent = inner
-        local shade = Instance.new("UIGradient")
-        shade.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(0.68, 0.68, 0.68))
-        shade.Rotation = 90
-        shade.Parent = inner
-
-        -- Kilau tipis di atas
-        local gloss = Instance.new("Frame")
-        gloss.Size, gloss.Position = UDim2.new(0.6, 0, 0.3, 0), UDim2.new(0.2, 0, 0.07, 0)
-        gloss.BackgroundColor3, gloss.BackgroundTransparency, gloss.BorderSizePixel = Color3.new(1, 1, 1), 0.8, 0
-        gloss.Parent = inner
-        local glossRound = Instance.new("UICorner")
-        glossRound.CornerRadius = UDim.new(1, 0)
-        glossRound.Parent = gloss
-        local glossFade = Instance.new("UIGradient")
-        glossFade.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.1),
-            NumberSequenceKeypoint.new(1, 1),
-        })
-        glossFade.Rotation = 90
-        glossFade.Parent = gloss
     end)
 
-    -- Huruf pink bergradasi
     local letter = Instance.new("TextLabel")
     letter.Size, letter.BackgroundTransparency = UDim2.fromScale(1, 1), 1
     letter.Text, letter.Font = LOGO_TEXT, Enum.Font.GothamBlack
-    letter.TextSize = #LOGO_TEXT > 1 and 17 or 29
+    letter.TextSize = #LOGO_TEXT > 1 and 18 or 30
     letter.TextColor3, letter.TextStrokeColor3 = Color3.new(1, 1, 1), Color3.fromRGB(24, 8, 18)
-    letter.TextStrokeTransparency, letter.ZIndex = 0.35, 3
+    letter.TextStrokeTransparency, letter.ZIndex = 0.4, 2
     letter.Parent = btn
     pcall(function()
         local lg = Instance.new("UIGradient")
-        lg.Color = ColorSequence.new(hex("FFC2E0"), hex(LOGO_COLOR))
+        lg.Color = ColorSequence.new(hex("FFB8DC"), hex(LOGO_COLOR))
         lg.Rotation = 90
         lg.Parent = letter
     end)
 
-    local function press(on)
-        pcall(function()
-            TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { Scale = on and 0.9 or 1 }):Play()
-        end)
-    end
-
-    local drag, origin, startX, startY, moved
+    local drag, origin, startPos, moved
     btn.InputBegan:Connect(function(input)
         local t = input.UserInputType
         if drag or (t ~= Enum.UserInputType.Touch and t ~= Enum.UserInputType.MouseButton1) then return end
-        drag, origin, moved = input, input.Position, false
-        startX, startY = btn.Position.X.Offset, btn.Position.Y.Offset
-        press(true)
+        drag, origin, startPos, moved = input, input.Position, btn.AbsolutePosition, false
         input.Changed:Connect(function()
             if input.UserInputState ~= Enum.UserInputState.End or drag ~= input then return end
             drag = nil
-            press(false)
             if moved then
                 local w, h = viewport()
-                savePos(btn.Position.X.Offset / w, btn.Position.Y.Offset / h)
+                savePos(btn.AbsolutePosition.X / w, btn.AbsolutePosition.Y / h)
             else
                 toggleMenu()
             end
@@ -216,8 +165,8 @@ local function makeButton()
         if moved then
             local w, h = viewport()
             btn.Position = UDim2.fromOffset(
-                math.clamp(startX + d.X, 0, w - SIZE),
-                math.clamp(startY + d.Y, 0, h - SIZE))
+                math.clamp(startPos.X + d.X, 0, w - SIZE),
+                math.clamp(startPos.Y + d.Y, 0, h - SIZE))
         end
     end)
     G.__LestToggle = toggleMenu
@@ -360,40 +309,6 @@ do
     end)
 end]==]
 
--- Tambalan 4: simpan WindUI di HP selama 3 hari
-local CACHE = [==[do
-    local rawDownload = Session.download
-    if type(rawDownload) == "function" then
-        Session.download = function(url)
-            local isUI = type(url) == "string" and url:lower():find("windui", 1, true) ~= nil
-            if not isUI or type(isfile) ~= "function" or type(readfile) ~= "function" or type(writefile) ~= "function" then
-                return rawDownload(url)
-            end
-            local dataFile, timeFile = "LestOpus/windui.cache", "LestOpus/windui.time"
-            local okc, cached = pcall(function()
-                if isfile(dataFile) and isfile(timeFile) then
-                    local age = os.time() - (tonumber(readfile(timeFile)) or 0)
-                    if age >= 0 and age < 259200 then
-                        local data = readfile(dataFile)
-                        if type(data) == "string" and #data > 1000 and data:find("CreateWindow", 1, true) then return data end
-                    end
-                end
-            end)
-            if okc and cached then return cached end
-            local data = rawDownload(url)
-            pcall(function()
-                if type(data) == "string" and #data > 1000 then
-                    if type(makefolder) == "function" and type(isfolder) == "function" and not isfolder("LestOpus") then makefolder("LestOpus") end
-                    writefile(dataFile, data)
-                    writefile(timeFile, tostring(os.time()))
-                end
-            end)
-            return data
-        end
-    end
-end
-]==]
-
 local function rename(s)
     s = s:gsub("gentasaja", "\1KEEP\1")
     s = s:gsub("[Gg][Ee][Nn][Tt][Aa]%s?[Hh]4[Xx]", "Lest")
@@ -437,8 +352,6 @@ local function buildSource(src)
         swap("ringan", lite, "pcall(function() State.LiteMode = true; State.Visual = false; State.MutePunch = true end)\n" .. lite)
     end
     swap("status-judul", "WindUI = downloadWindUI()()", UIBLOCK)
-    local printLine = 'print("[GentaH4x] Memuat build " .. Session.Build)'
-    swap("cache-windui", printLine, CACHE .. printLine)
     return out, applied, skipped
 end
 
