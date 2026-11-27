@@ -1,9 +1,7 @@
--- LestHub boot v9 (Pencatat + World Finder + sambung otomatis + diagnosis)
+-- LestHub boot v5 (tes: Pencatat + World Finder)
 local OWNER, REPO, BRANCH = "Anounyes", "lest", "main"
 local MAIN_FILE, BOOT_FILE = "gentah4x.lua.txt", "lest-test.lua.txt"
 local LITE = true
-local DIAG = true -- true = 25 detik setelah menu siap muncul layar diagnosis (screenshot lalu kirim ke Claude)
-local HIDE_STATUS = false -- false = notifikasi status game tampil normal (tidak disentuh sama sekali)
 local LOGO_TEXT, LOGO_COLOR = "L", "FF5FA8"
 local THEME = "sein" -- "sein" (cincin hijau) atau "pink" (cincin pink-ungu)
 
@@ -276,7 +274,6 @@ local UIBLOCK = [==[WindUI = downloadWindUI()()
 do
     local KEYS = { "Pukul:", "Pohon:", "Animasi:", "Dropdown:", "setTile:", "Inventori:", "Pemain:", "Posisi:", "Drop: OK", "World: OK" }
     local function isStatus(t)
-        if not __HIDE__ then return false end
         if type(t) ~= "string" then return false end
         if t:find("v%d+%.%d") and t:find("Lest", 1, true) then return true end
         for _, k in ipairs(KEYS) do
@@ -855,7 +852,7 @@ local REC_UI = [==[
             safe(function()
                 controls:Dropdown({
                     Title = "Panjang nama (Pencatat)",
-                    Desc = "Panjang nama yang dicatat",
+                    Desc = "Dipakai saat Jenis nama = Pencatat",
                     Values = { "3 karakter", "4 karakter" },
                     Value = Rec.getLen() == 4 and "4 karakter" or "3 karakter",
                     Callback = function(value)
@@ -924,17 +921,6 @@ local REC_UI = [==[
     end
 ]==]
 
-local REC_HOOK = [==[
-        if WorldFinder.Rec then
-            pcall(WorldFinder.Rec.record, name, result.kind)
-            if result.kind == "unlocked" then
-                pcall(WorldFinder.log, "Pencatat: " .. tostring(name) .. " kosong, dicatat, lanjut cari")
-                pcall(function() result.kind = "locked" end)
-            end
-        elseif result.kind == "unlocked" then
-            notify("World Finder", message, 10)
-        end]==]
-
 local PICK_NEW = [==[local name = queue[index]
                     if WorldFinder.Rec then
                         local picked = WorldFinder.Rec.pick(index, queue)
@@ -945,82 +931,6 @@ local PICK_NEW = [==[local name = queue[index]
                         name = picked
                         queue[index] = name
                     end]==]
-
-local SUPERVISOR = [==[
-G.__LestRefs, G.__LestRefsText = Refs, refsText
--- Lest: sambung ulang otomatis ke game (pengganti menekan 'Hubungkan ke game' tiap pindah world)
-task.spawn(function()
-    local lastWorld, lastTry, tries, told = nil, 0, 0, false
-    task.wait(10)
-    while alive() do
-        task.wait(2)
-        pcall(function()
-            local now = Guard.worldName() or ""
-            if now ~= lastWorld then lastWorld, tries, told = now, 0, false end
-            if now == "" then return end
-            if Clear.Running or Farmer.Running or State.Running or WorldFinder.Busy
-                or Build.DirtRun or Pabrik.Running then return end
-            local w = Refs.World
-            local wn = w and rawget(w, "name")
-            local stale = (not w) or (type(wn) == "string" and wn:upper() ~= now:upper())
-            if not (stale or not Refs.Inv or not OrigIsDown) then return end
-            if tries < 2 then
-                if os.clock() - lastTry < 12 then return end
-                tries += 1
-                lastTry = os.clock()
-                reconnect()
-            elseif not told then
-                told = true
-                notify("Lest", "Belum terhubung penuh: " .. refsText() .. " | Gerak: " .. (OrigIsDown and "OK" or "TIDAK"), 10)
-            end
-        end)
-    end
-end)
-
-task.spawn(function()
-    local was = false
-    while alive() do
-        task.wait(1)
-        pcall(function()
-            local running = WorldFinder.Running == true
-            if was and not running and G.__LestShow then
-                task.wait(1)
-                local out = { "FINDER BERHENTI | " .. tostring(WorldFinder.Status):sub(1, 220) }
-                local logs = WorldFinder.Logs or {}
-                for i = math.max(1, #logs - 18), #logs do out[#out + 1] = tostring(logs[i]):sub(1, 170) end
-                G.__LestShow(table.concat(out, "\n"))
-            end
-            was = running
-        end)
-    end
-end)
-]==]
-
-local MENU_OLD = [==[local ok, isMenu = pcall(function()
-                return type(rawget(v, "openBackpack")) == "function" and type(rawget(v, "ui")) == "table"
-            end)]==]
-local MENU_NEW = [==[local ok, isMenu = pcall(function()
-                return (type(rawget(v, "openBackpack")) == "function" and type(rawget(v, "ui")) == "table")
-                    or (type(rawget(v, "openPicker")) == "function" and type(rawget(v, "enter")) == "function")
-            end)]==]
-
-local L1_OLD = [==[        if m and type(rawget(m, "openPicker")) == "function" and pcall(m.openPicker) then
-            return true
-        end]==]
-local L1_NEW = [==[        if m and type(rawget(m, "openPicker")) == "function" then
-            local okp, errp = pcall(m.openPicker)
-            pcall(WorldFinder.log, "[dbg] openPicker ok=" .. tostring(okp) .. " " .. tostring(errp))
-            if okp then return true end
-        end]==]
-local L2_OLD = [==[            return (pcall(w.call, "LeaveWorld"))]==]
-local L2_NEW = [==[            local okc, errc = pcall(w.call, "LeaveWorld")
-            pcall(WorldFinder.log, "[dbg] call LeaveWorld ok=" .. tostring(okc) .. " " .. tostring(errc))
-            return okc]==]
-local E_OLD = [==[            local ok, res, msg, hopping = pcall(m.enter, name)
-            if not ok then return false, strip(res) end]==]
-local E_NEW = [==[            local ok, res, msg, hopping = pcall(m.enter, name)
-            pcall(WorldFinder.log, ("[dbg] enter ok=%s res=%s msg=%s hop=%s"):format(tostring(ok), tostring(res), tostring(msg), tostring(hopping)))
-            if not ok then return false, strip(res) end]==]
 
 local function rename(s)
     s = s:gsub("gentasaja", "\1KEEP\1")
@@ -1059,22 +969,18 @@ local function buildSource(src)
         swap("cadangan-ItemDB", "local function loadModule(parent, name, required)", WRAP .. "local function loadModule(parent, name, required)")
     end
 
-    swap("menu-lebih-luas", MENU_OLD, MENU_NEW)
-    swap("log-keluar", L1_OLD, L1_NEW)
-    swap("log-keluar2", L2_OLD, L2_NEW)
-    swap("log-masuk", E_OLD, E_NEW)
     swap("jeda", "if visited % 1000 == 0 then task.wait() end", "if visited % 250 == 0 then task.wait() end")
     if LITE then
         local lite = "if (Config.Data.Version == nil or Config.Data.Version == 1) and State.AfterBreakMs == 300 then"
         swap("ringan", lite, "pcall(function() State.LiteMode = true; State.Visual = false; State.MutePunch = true end)\n" .. lite)
     end
-    swap("status-judul", "WindUI = downloadWindUI()()", (UIBLOCK:gsub("__HIDE__", tostring(HIDE_STATUS))))
+    swap("status-judul", "WindUI = downloadWindUI()()", UIBLOCK)
     local printLine = 'print("[GentaH4x] Memuat build " .. Session.Build)'
     swap("cache-windui", printLine, CACHE .. printLine)
 
     -- Pencatat + World Finder (semua jangkar harus ada, kalau tidak dilewati)
     local MODES_OLD = 'local modes = { "Campuran", "3 Huruf", "4 Huruf", "Kata Indonesia", "English Words", "BUY + Item", "Daftar sendiri" }'
-    local MODES_NEW = 'local modes = { "Pencatat" }'
+    local MODES_NEW = 'local modes = { "Campuran", "3 Huruf", "4 Huruf", "Kata Indonesia", "English Words", "BUY + Item", "Daftar sendiri", "Pencatat" }'
     local MODE_ASSIGN = "WorldFinder.Modes = modes"
     local LIMIT_OLD = "limit = math.clamp(math.floor(tonumber(limit) or 100), 1, 500)"
     local PICK_OLD = "local name = queue[index]"
@@ -1087,16 +993,13 @@ local function buildSource(src)
     if allThere then
         swap("pencatat-mode", MODES_OLD, MODES_NEW)
         swap("pencatat-modul", MODE_ASSIGN, MODE_ASSIGN .. "\n" .. REC_LOGIC)
-        swap("pencatat-antrean", LIMIT_OLD, LIMIT_OLD .. '\n        if WorldFinder.Rec then return WorldFinder.Rec.queue(limit) end')
+        swap("pencatat-antrean", LIMIT_OLD, LIMIT_OLD .. '\n        if mode == "Pencatat" and WorldFinder.Rec then return WorldFinder.Rec.queue(limit) end')
         swap("pencatat-pilih", PICK_OLD, PICK_NEW)
-        swap("pencatat-catat", RECORD_OLD, REC_HOOK)
+        swap("pencatat-catat", RECORD_OLD, RECORD_OLD .. "\n        if WorldFinder.Rec then pcall(WorldFinder.Rec.record, name, result.kind) end")
         swap("pencatat-menu", UI_OLD, REC_UI .. "\n" .. UI_OLD)
     else
         skipped[#skipped + 1] = "pencatat (jangkar tidak cocok)"
     end
-
-    swap("sambung-otomatis", "task.spawn(function()\n    while alive() do\n        if not State.Running then updateStatus() end",
-        SUPERVISOR .. "task.spawn(function()\n    while alive() do\n        if not State.Running then updateStatus() end")
 
     -- Jangan muat script milik orang lain setelah teleport / rejoin: pakai boot sendiri
     local upstream = "https://raw.githubusercontent.com/ZennJxD/GentaH4x/refs/heads/main/GentaH4x"
@@ -1105,102 +1008,6 @@ local function buildSource(src)
     local reconnect = 'Config.add("Reconnect", Rejoin, { "On", "World", "Server", "DelaySec", "ScriptUrl", "Keep", "Target" })'
     swap("url-rejoin-paksa", reconnect, reconnect .. '\nif type(Rejoin.ScriptUrl) ~= "string" or Rejoin.ScriptUrl == "" or Rejoin.ScriptUrl:find("ZennJxD", 1, true) then Rejoin.ScriptUrl = "' .. BASE .. BOOT_FILE .. '" end')
     return out, applied, skipped
-end
-
-
--- Panel teks yang bisa digulir dan di-screenshot (juga disalin ke clipboard dan disimpan ke LestOpus/diag.txt)
-local function showPanel(text)
-    pcall(function() if setclipboard then setclipboard(text) end end)
-    pcall(function()
-        if writefile then
-            if makefolder and isfolder and not isfolder("LestOpus") then makefolder("LestOpus") end
-            writefile("LestOpus/diag.txt", text)
-        end
-    end)
-    local parent
-    pcall(function() parent = gethui and gethui() end)
-    if not parent then pcall(function() parent = game:GetService("CoreGui") end) end
-    if not parent then parent = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui") end
-    pcall(function()
-        local old = parent:FindFirstChild("LestDiag")
-        if old then old:Destroy() end
-    end)
-    local gui = Instance.new("ScreenGui")
-    gui.Name, gui.ResetOnSpawn, gui.DisplayOrder = "LestDiag", false, 999
-    gui.Parent = parent
-    local frame = Instance.new("ScrollingFrame")
-    frame.Size, frame.Position = UDim2.fromScale(0.7, 0.88), UDim2.fromScale(0.15, 0.06)
-    frame.BackgroundColor3, frame.BackgroundTransparency = Color3.fromRGB(20, 18, 24), 0.05
-    frame.BorderSizePixel, frame.ScrollBarThickness = 0, 6
-    frame.CanvasSize, frame.AutomaticCanvasSize = UDim2.new(), Enum.AutomaticSize.Y
-    frame.Parent = gui
-    local label = Instance.new("TextLabel")
-    label.Size, label.AutomaticSize = UDim2.new(1, -12, 0, 0), Enum.AutomaticSize.Y
-    label.Position, label.BackgroundTransparency = UDim2.fromOffset(6, 40), 1
-    label.TextWrapped, label.TextXAlignment, label.TextYAlignment = true, Enum.TextXAlignment.Left, Enum.TextYAlignment.Top
-    label.Font, label.TextSize, label.TextColor3 = Enum.Font.Code, 13, Color3.new(1, 1, 1)
-    label.Text = text
-    label.Parent = frame
-    local close = Instance.new("TextButton")
-    close.Size, close.Position = UDim2.fromOffset(90, 32), UDim2.fromScale(0.84, 0.06)
-    close.Text, close.BackgroundColor3, close.TextColor3 = "Tutup", Color3.fromRGB(180, 60, 90), Color3.new(1, 1, 1)
-    close.ZIndex = 5
-    close.Parent = gui
-    close.MouseButton1Click:Connect(function() gui:Destroy() end)
-end
-
-local function runDiag()
-    local lines = {}
-    local function add(t) lines[#lines + 1] = tostring(t) end
-    add("LEST DIAG v9 | executor: " .. tostring((identifyexecutor and identifyexecutor()) or "?"))
-    local R = G.__LestRefs
-    if type(R) == "table" then
-        pcall(function() add(G.__LestRefsText()) end)
-        add(("Refs: Menu=%s Punch=%s Trees=%s Arm=%s"):format(
-            tostring(R.Menu ~= nil), tostring(R.Punch ~= nil), tostring(R.Trees ~= nil), tostring(R.Arm ~= nil)))
-        pcall(function()
-            local names = {}
-            for k, v in pairs(R.World or {}) do
-                if type(k) == "string" and type(v) == "function" then names[#names + 1] = k end
-            end
-            table.sort(names)
-            add("World fungsi: " .. table.concat(names, " "):sub(1, 1500))
-        end)
-    else
-        add("Refs tidak terekspor (tambalan sambung-otomatis tidak terpasang)")
-    end
-    local gcOk, objs = pcall(function() return getgc(true) end)
-    if gcOk and type(objs) == "table" then
-        local gcons = (debug and debug.getconstants) or getconstants
-        local vend, cracks, n = {}, {}, 0
-        for _, v in pairs(objs) do
-            n += 1
-            if n % 3000 == 0 then task.wait() end
-            if type(v) == "function" and gcons then
-                local ok, consts = pcall(gcons, v)
-                if ok and type(consts) == "table" then
-                    local hasVend, hasCrack, strs = false, false, {}
-                    for _, c in pairs(consts) do
-                        if type(c) == "string" then
-                            local low = c:lower()
-                            if low:find("vending", 1, true) then hasVend = true end
-                            if low:find("crack", 1, true) then hasCrack = true end
-                            if #strs < 8 then strs[#strs + 1] = c:sub(1, 18) end
-                        end
-                    end
-                    if hasVend and #vend < 3 then vend[#vend + 1] = table.concat(strs, " | ") end
-                    if hasCrack and #cracks < 8 then cracks[#cracks + 1] = table.concat(strs, " | ") end
-                end
-            end
-        end
-        add("fungsi 'vending': " .. #vend)
-        for i, v in ipairs(vend) do add(" v" .. i .. ": " .. v) end
-        add("fungsi 'crack': " .. #cracks .. " (maks 8)")
-        for i, v in ipairs(cracks) do add(" c" .. i .. ": " .. v) end
-    else
-        add("getgc gagal: " .. tostring(objs))
-    end
-    showPanel(table.concat(lines, "\n"))
 end
 
 local function runMain()
@@ -1258,10 +1065,8 @@ local function run()
     end)
 
     stage = "muat script utama"
-    if DIAG then G.__LestShow = showPanel end
     runMain()
     G.__LestReady = true
-    if DIAG then task.delay(25, function() pcall(runDiag) end) end
 end
 
 local okRun, errRun = xpcall(run, debug.traceback)
