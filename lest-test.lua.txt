@@ -1,4 +1,4 @@
--- LestHub boot v7 (tes: perekam aksi + Finder tanpa keluar)
+-- LestHub boot v8 (tes: fungsi pukul game + pukul jaringan)
 local OWNER, REPO, BRANCH = "Anounyes", "lest", "main"
 local MAIN_FILE, BOOT_FILE = "gentah4x.lua.txt", "lest-test.lua.txt"
 local LITE = true
@@ -1070,37 +1070,14 @@ local NETINSTALL = [==[
         if not Session.PunchOld and type(Net.punch) == "table" and type(rawget(Net.punch, "send")) == "function" then
             Session.PunchOld = rawget(Net.punch, "send")
         end
-        -- Pukul lewat jaringan game: dipakai kalau fungsi pukul game tidak ketemu
+        -- Pukul lewat jaringan game (bentuk paket sama dengan pukulan manual yang terekam:
+        -- saluran act, kind=2, posisi di tengah tile). Dipakai kalau fungsi pukul game tidak ketemu.
         Session.NetPunch = function(x, y)
-            local send = Session.PunchOld
-            if type(send) ~= "function" then error("Net.punch.send tidak tersedia", 0) end
-            local seen = Session.PunchSeen
-            local ok, err
+            local channel = Net.act
+            local send = type(channel) == "table" and channel.send
+            if type(send) ~= "function" then error("Net.act.send tidak tersedia", 0) end
             Session.PunchMine = true
-            if seen and seen.kind == "number" then
-                ok, err = pcall(send, x, y)
-            else
-                local packet
-                if seen and seen.packet then
-                    packet = {}
-                    for key, value in pairs(seen.packet) do packet[key] = value end
-                    if packet.tx ~= nil or packet.ty ~= nil then
-                        packet.tx, packet.ty = x, y
-                    elseif packet.x ~= nil or packet.y ~= nil then
-                        packet.x, packet.y = x, y
-                    else
-                        local keys = {}
-                        for key, value in pairs(packet) do
-                            if type(key) == "string" and type(value) == "number" then keys[#keys + 1] = key end
-                        end
-                        table.sort(keys)
-                        if #keys >= 2 then packet[keys[1]], packet[keys[2]] = x, y else packet.x, packet.y = x, y end
-                    end
-                else
-                    packet = { x = x, y = y }
-                end
-                ok, err = pcall(send, packet)
-            end
+            local ok, err = pcall(send, { kind = 2, x = x + 0.5, y = y + 0.5 })
             Session.PunchMine = false
             if not ok then error(err, 0) end
         end
@@ -1158,6 +1135,45 @@ Session.diagnose = function()
         table.sort(list)
         return table.concat(list, " ", 1, math.min(#list, 160))
     end)())
+
+    -- bentuk data pohon: upvalue fungsi World.treeLook / treeFruit / treeNear / tileChanged
+    local worldForTree = Refs.World
+    if type(worldForTree) == "table" and type(getUpvalues) == "function" then
+        for _, fname in ipairs({ "treeLook", "treeFruit", "treeNear", "tileChanged" }) do
+            local fn = rawget(worldForTree, fname)
+            if type(fn) == "function" then
+                local parts = {}
+                for _, up in pairs(getUpvalues(fn)) do
+                    if type(up) == "table" and up ~= worldForTree then
+                        local count, sampleKey, sampleValue = 0, nil, nil
+                        for key, value in pairs(up) do
+                            count += 1
+                            if sampleKey == nil then sampleKey, sampleValue = key, value end
+                            if count > 40 then break end
+                        end
+                        local desc = "t" .. (count > 40 and ">40" or tostring(count))
+                        if sampleKey ~= nil then
+                            desc = desc .. " " .. type(sampleKey):sub(1, 3) .. "->"
+                            if type(sampleValue) == "table" then
+                                local fields = {}
+                                for key, value in pairs(sampleValue) do
+                                    if #fields < 6 then fields[#fields + 1] = tostring(key) .. ":" .. type(value):sub(1, 3) end
+                                end
+                                table.sort(fields)
+                                desc = desc .. "{" .. table.concat(fields, ",") .. "}"
+                            else
+                                desc = desc .. type(sampleValue):sub(1, 3)
+                            end
+                        end
+                        parts[#parts + 1] = desc
+                    elseif type(up) == "function" then
+                        parts[#parts + 1] = "f"
+                    end
+                end
+                add(fname .. "> " .. table.concat(parts, " | "))
+            end
+        end
+    end
 
     -- fungsi milik game yang memuat teks vending / crack (fungsi script ini dilewati)
     if type(getgc) == "function" and type(getconsts) == "function" then
@@ -1259,9 +1275,7 @@ safe(function()
                 pcall(Session.hookMore)
                 local ok, text = pcall(Session.diagnose)
                 text = ok and text or ("diagnosa gagal: " .. tostring(text))
-                local okAuto, errAuto = pcall(checkAutoStart)
-                text = text .. "\ncek-auto=" .. tostring(okAuto and (errAuto or "lolos") or ("error " .. tostring(errAuto)))
-                    .. " isDown=" .. tostring(OrigIsDown ~= nil)
+                text = text .. "\nisDown=" .. tostring(OrigIsDown ~= nil)
                 pcall(function() UI.DiagInfo:SetDesc(text) end)
                 if type(setclipboard) == "function" then pcall(setclipboard, text) end
                 pcall(function()
@@ -1281,16 +1295,19 @@ local function isPunchFn(fn)
     if not getconsts then return false end
     local ok, consts = pcall(getconsts, fn)
     if not ok or type(consts) ~= "table" then return false end
-    local hasVend, hasMark, hasHint = false, false, false
+    local hasVend, hasMark, hasHint, hasTreeHits, hasMaterial = false, false, false, false, false
     for _, c in pairs(consts) do
         if type(c) == "string" then
             local low = c:lower()
             if low:find("empty", 1, true) and low:find("vending", 1, true) then hasVend = true
             elseif c == "newCrack" or c == "HarvestProvider" then hasMark = true
+            elseif c == "TREE_HITS" then hasTreeHits = true
+            elseif c == "MATERIAL_SFX" then hasMaterial = true
             elseif low:find("crack", 1, true) or low == "punch" or low:find("harvest", 1, true) then hasHint = true end
         end
     end
-    return hasVend and (hasMark or hasHint)
+    -- game lama: teks vending + penanda crack; game baru (v2570): tabel TREE_HITS + MATERIAL_SFX
+    return (hasVend and (hasMark or hasHint)) or (hasTreeHits and hasMaterial)
 end
 
 ]==]
@@ -1331,6 +1348,51 @@ local LEAVE_NEW = [==[
         end
         return false
     end
+
+]==]
+
+local FALLBACK_NEW = [==[
+    -- Cadangan: pukul lewat paket jaringan game (kalau ada), atau hitung sendiri
+    local hc = HitCount[key]
+    if not hc or hc.id ~= id or hc.layer ~= layer then
+        hc = { id = id, layer = layer, n = 0 }
+        HitCount[key] = hc
+    end
+    hc.n += 1
+    if Session.NetPunch then
+        local okNet, errNet = pcall(Session.NetPunch, x, y)
+        if not okNet then
+            State.LastAction = "Error pukul: " .. tostring(errNet)
+            return nil
+        end
+    else
+        sendHitFx(x, y)
+    end
+    if State.Visual then Anim.swing(x, y, "punch") end
+    local need = hitsNeeded(id)
+    if hc.n >= need then
+        if Session.NetPunch and hc.n < need + 3 then
+            -- pecahnya diurus server: tunggu perubahan tile, baru dihitung pecah
+            if tileAt(layer, x, y) ~= id then
+                HitCount[key] = nil
+                Drops.brokeAt[key] = os.clock()
+                State.Broken += 1
+                State.LastAction = "Break " .. itemName(id) .. " (" .. x .. "," .. y .. ")"
+                return "broke"
+            end
+            State.LastAction = "Pukul " .. itemName(id) .. " " .. hc.n .. "/" .. need
+            return "hit"
+        end
+        sendSetTile(layer, x, y, 0)
+        HitCount[key] = nil
+        Drops.brokeAt[key] = os.clock()
+        State.Broken += 1
+        State.LastAction = "Break " .. itemName(id) .. " (" .. x .. "," .. y .. ")"
+        return "broke"
+    end
+    State.LastAction = "Pukul " .. itemName(id) .. " " .. hc.n .. "/" .. need
+    return "hit"
+end
 
 ]==]
 
@@ -1431,8 +1493,10 @@ local function buildSource(src)
     swap("pukul-pasang", 'NetOk, Net = loadModule(Shared, "Net", false)\n', 'NetOk, Net = loadModule(Shared, "Net", false)\n' .. NETINSTALL)
     swapSpan("pukul-deteksi", "local function isPunchFn(fn)", "-- Fungsi game yang menggambar tangan karakter saat memukul / memasang", ISPUNCH_NEW)
     swap("pukul-clear", "or not Refs.Punch\n", "or not (Refs.Punch or Session.NetPunch)\n")
-    swap("pukul-panggil", "    if Refs.Punch then\n        local ok, err = pcall(Refs.Punch, x, y, State.MutePunch or nil, nil)\n",
-        "    local punchFn = Refs.Punch or Session.NetPunch\n    if punchFn then\n        local ok, err = pcall(punchFn, x, y, State.MutePunch or nil, nil)\n")
+    swap("pukul-galat", "        local ok, err = pcall(Refs.Punch, x, y, State.MutePunch or nil, nil)\n        if not ok then\n",
+        "        local ok, err = pcall(Refs.Punch, x, y, State.MutePunch or nil, nil)\n        if not ok and Session.NetPunch then ok, err = pcall(Session.NetPunch, x, y) end\n        if not ok then\n")
+    swapSpan("pukul-cadangan", "    -- Cadangan: hitung pukulan sendiri\n", "---------------------------------------------------------------------\n-- AUTO COLLECT", FALLBACK_NEW)
+    swap("pohon-akar", 'for _, name in ipairs({ "tileChanged", "treeChanged", "setTree" }) do', 'for _, name in ipairs({ "tileChanged", "treeChanged", "setTree", "treeLook", "treeFruit", "treeNear" }) do')
     swap("pukul-cek", 'if not Refs.Punch then return "Fungsi pukul game belum ketemu', 'if not (Refs.Punch or Session.NetPunch) then return "Fungsi pukul game belum ketemu')
     swap("pukul-status", '.. " | Pukul: " .. (Refs.Punch and "OK" or "TIDAK")',
         '.. " | Pukul: " .. (Refs.Punch and "OK" or (Session.NetPunch and ("NET-" .. tostring(Session.PunchHook or "x")) or "TIDAK"))')
